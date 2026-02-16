@@ -10,8 +10,9 @@ import (
 type ActivityState int
 
 const (
-	StateWorking ActivityState = iota
+	StateWorking    ActivityState = iota
 	StateWaiting
+	StatePermission
 	StateUnknown
 )
 
@@ -21,6 +22,8 @@ func (s ActivityState) String() string {
 		return "Working"
 	case StateWaiting:
 		return "Waiting"
+	case StatePermission:
+		return "Permission"
 	default:
 		return "Unknown"
 	}
@@ -32,6 +35,8 @@ func (s ActivityState) Emoji() string {
 		return "⚡"
 	case StateWaiting:
 		return "⏳"
+	case StatePermission:
+		return "🔐"
 	default:
 		return "❓"
 	}
@@ -47,4 +52,6 @@ type ClaudeSession struct {
 	LastActivity time.Time
 	State        ActivityState
 	ProjectPath  string
+	LiveStatus   string // live status message from hooks (what Claude is doing/asking)
+	LiveTool     string // current tool being used
 }

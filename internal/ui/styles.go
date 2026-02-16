@@ -11,8 +11,9 @@ var (
 			Bold(true).
 			Padding(0, 1)
 
-	workingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	waitingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("248"))
+	workingStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	waitingStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("248"))
+	permissionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 
 	pathStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Bold(true)
 	branchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))

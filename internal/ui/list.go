@@ -26,12 +26,15 @@ func (i sessionItem) Title() string {
 }
 
 func (i sessionItem) Description() string {
-	summary := i.session.Summary
-	if summary == "" {
-		summary = "No summary"
+	// Prefer live status from hooks over static session summary
+	desc := i.session.LiveStatus
+	if desc == "" {
+		desc = i.session.Summary
+	}
+	if desc == "" {
+		desc = "No summary"
 	}
 
-	desc := summary
 	if !i.session.LastActivity.IsZero() {
 		desc += "  " + agoStyle.Render("["+timeAgo(i.session.LastActivity)+"]")
 	}
