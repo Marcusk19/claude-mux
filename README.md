@@ -7,24 +7,27 @@ A tmux plugin that shows all active Claude Code sessions in a popup overlay. See
 ```
 ┌─────────────── Claude Code Sessions ───────────────┐
 │                                                     │
-│  ⚡ ~/projects/my-api   main                        │
-│     Adding pagination to /users endpoint  [12s ago] │
+│  ⚡ ~/projects/my-api   main              (cyan)    │
+│     Add pagination to /users endpoint   [12s ago]   │
 │                                                     │
-│  🔐 ~/projects/web-app   master                     │
-│     Claude needs your permission to use Bash [1m]   │
+│  🔐 ~/projects/web-app   master          (orange)   │
+│     Fix authentication redirect loop    [1m ago]    │
 │                                                     │
-│  ⏳ ~/projects/infra   feat/monitoring               │
-│     Which logging framework should we use?  [5m ago]│
+│  ⏳ ~/projects/infra   feat/monitoring    (green)    │
+│     Set up Prometheus monitoring stack  [5m ago]     │
 │                                                     │
 │  j/k navigate  / filter  enter jump  q quit         │
 └─────────────────────────────────────────────────────┘
 ```
 
-**Status indicators:**
-- ⚡ **Working** — Claude is actively processing (running tools, generating response)
-- ⏳ **Waiting** — Claude finished and is waiting for your input
-- 🔐 **Permission** — Claude needs permission to proceed
-- ❓ **Unknown** — Claude Code detected but state couldn't be determined
+Session paths are **color-coded by state** so you can scan status at a glance:
+
+- ⚡ **Cyan** — Claude is actively processing (running tools, generating response)
+- ⏳ **Green** — Claude finished and is waiting for your input
+- 🔐 **Orange** — Claude needs permission to proceed
+- ❓ **Gray** — Claude Code detected but state couldn't be determined
+
+The description line shows the **session summary** (the static chat title from Claude's session index).
 
 ## Requirements
 
@@ -86,9 +89,9 @@ set -g @claude-mux-width '80%'    # Popup width (default: 80%)
 set -g @claude-mux-height '70%'   # Popup height (default: 70%)
 ```
 
-## Live status via Claude Code hooks
+## State detection via Claude Code hooks
 
-By default, the session list shows the static summary from Claude's session index (e.g., "Fix Cypress Test"). To get **live status** — what Claude is currently doing, what tool it's running, or what question it's asking — you need to configure Claude Code hooks.
+By default, session state is inferred from the pane title (braille characters = working, `✳` = waiting). For **more accurate state detection** — distinguishing permission prompts from regular waiting, and faster state transitions — configure Claude Code hooks.
 
 Add the following to your `~/.claude/settings.json`:
 
@@ -147,16 +150,16 @@ Replace `/path/to/claude-mux` with the actual install path (e.g., `~/.tmux/plugi
 
 ### What each hook captures
 
-| Hook event | Status shown | What it captures |
-|---|---|---|
-| `UserPromptSubmit` | ⚡ Working | Your prompt text (truncated) |
-| `PreToolUse` | ⚡ Working | Tool description — e.g., "Reading ~/file.go", "$ npm test", "Searching: pattern" |
-| `Stop` | ⏳ Waiting | Claude's last message, extracted from the session transcript (prioritizes questions) |
-| `Notification` | 🔐 Permission / ⏳ Waiting | The notification message (e.g., "Claude needs your permission to use Bash") |
+| Hook event | State set |
+|---|---|
+| `UserPromptSubmit` | ⚡ Working (cyan) |
+| `PreToolUse` | ⚡ Working (cyan) |
+| `Stop` | ⏳ Waiting (green) |
+| `Notification` | 🔐 Permission (orange) or ⏳ Waiting (green) |
 
 ### How it works
 
-Each hook invocation writes a small JSON state file to `~/.cache/claude-mux/<session-id>.json`. The TUI reads these files during its polling loop and shows the live status instead of the static session summary. State files older than 5 minutes are ignored.
+Each hook invocation writes a small JSON state file to `~/.cache/claude-mux/<session-id>.json`. The TUI reads these files during its polling loop to determine the session's activity state for color-coding. State files older than 5 minutes are ignored.
 
 ## How session discovery works
 

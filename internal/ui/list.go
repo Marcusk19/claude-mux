@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mkok/claude-mux/internal/session"
 )
 
@@ -14,11 +15,24 @@ type sessionItem struct {
 	session session.ClaudeSession
 }
 
+func stateStyle(s session.ActivityState) lipgloss.Style {
+	switch s {
+	case session.StateWorking:
+		return workingStyle.Bold(true)
+	case session.StateWaiting:
+		return waitingStyle.Bold(true)
+	case session.StatePermission:
+		return permissionStyle.Bold(true)
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Bold(true)
+	}
+}
+
 func (i sessionItem) Title() string {
 	path := shortenPath(i.session.ProjectPath)
 	stateEmoji := i.session.State.Emoji()
 
-	title := fmt.Sprintf("%s %s", stateEmoji, pathStyle.Render(path))
+	title := fmt.Sprintf("%s %s", stateEmoji, stateStyle(i.session.State).Render(path))
 	if i.session.GitBranch != "" {
 		title += "  " + branchStyle.Render(i.session.GitBranch)
 	}
@@ -26,11 +40,7 @@ func (i sessionItem) Title() string {
 }
 
 func (i sessionItem) Description() string {
-	// Prefer live status from hooks over static session summary
-	desc := i.session.LiveStatus
-	if desc == "" {
-		desc = i.session.Summary
-	}
+	desc := i.session.Summary
 	if desc == "" {
 		desc = "No summary"
 	}
