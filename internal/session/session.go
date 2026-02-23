@@ -13,6 +13,7 @@ const (
 	StateWorking    ActivityState = iota
 	StateWaiting
 	StatePermission
+	StateDone
 	StateUnknown
 )
 
@@ -24,6 +25,8 @@ func (s ActivityState) String() string {
 		return "Waiting"
 	case StatePermission:
 		return "Permission"
+	case StateDone:
+		return "Done"
 	default:
 		return "Unknown"
 	}
@@ -32,11 +35,13 @@ func (s ActivityState) String() string {
 func (s ActivityState) Emoji() string {
 	switch s {
 	case StateWorking:
-		return "⚡"
-	case StateWaiting:
 		return "⏳"
+	case StateWaiting:
+		return "🔒"
 	case StatePermission:
 		return "🔐"
+	case StateDone:
+		return "😊"
 	default:
 		return "❓"
 	}
@@ -55,4 +60,5 @@ type ClaudeSession struct {
 	InitialPrompt string // truncated first user message in the session
 	LiveStatus    string // live status message from hooks (what Claude is doing/asking)
 	LiveTool      string // current tool being used
+	Pinned        bool   // user-pinned to top of list
 }

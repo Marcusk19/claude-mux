@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/mkok/claude-mux/internal/hook"
+	"github.com/mkok/claude-mux/internal/pin"
 	"github.com/mkok/claude-mux/internal/tmux"
 )
 
@@ -17,6 +18,12 @@ func DiscoverSessions() ([]ClaudeSession, error) {
 	panes, err := tmux.ListPanes()
 	if err != nil {
 		return nil, err
+	}
+
+	pins := pin.Load()
+	pinnedSet := make(map[string]bool, len(pins))
+	for _, p := range pins {
+		pinnedSet[p] = true
 	}
 
 	var sessions []ClaudeSession
@@ -63,11 +70,16 @@ func DiscoverSessions() ([]ClaudeSession, error) {
 		// Enrich with live hook state if available
 		enrichWithHookState(&cs)
 
+		cs.Pinned = pinnedSet[cs.ProjectPath]
+
 		sessions = append(sessions, cs)
 	}
 
-	// Sort: working sessions first, then by last activity (most recent first)
+	// Sort: pinned first, then by state (working first), then by last activity (most recent first)
 	sort.Slice(sessions, func(i, j int) bool {
+		if sessions[i].Pinned != sessions[j].Pinned {
+			return sessions[i].Pinned
+		}
 		if sessions[i].State != sessions[j].State {
 			return sessions[i].State < sessions[j].State
 		}
@@ -169,5 +181,7 @@ func enrichWithHookState(cs *ClaudeSession) {
 		cs.State = StateWaiting
 	case "permission":
 		cs.State = StatePermission
+	case "done":
+		cs.State = StateDone
 	}
 }

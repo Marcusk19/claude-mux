@@ -5,6 +5,7 @@ import "github.com/charmbracelet/bubbles/key"
 type keyMap struct {
 	Quit   key.Binding
 	Select key.Binding
+	Pin    key.Binding
 }
 
 var keys = keyMap{
@@ -15,5 +16,9 @@ var keys = keyMap{
 	Select: key.NewBinding(
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "jump"),
+	),
+	Pin: key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", "pin/unpin"),
 	),
 }
