@@ -78,7 +78,7 @@ func Handle(event string) error {
 		state.Message = describeToolUse(input.ToolName, input.ToolInput)
 
 	case "Stop":
-		state.Status = "waiting"
+		state.Status = "done"
 		if input.TranscriptPath != "" {
 			if msg, err := lastAssistantText(input.TranscriptPath, 32768); err == nil && msg != "" {
 				state.Message = msg
