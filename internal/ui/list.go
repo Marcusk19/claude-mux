@@ -23,6 +23,8 @@ func stateStyle(s session.ActivityState) lipgloss.Style {
 		return waitingStyle.Bold(true)
 	case session.StatePermission:
 		return permissionStyle.Bold(true)
+	case session.StateDone:
+		return doneStyle.Bold(true)
 	default:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Bold(true)
 	}
@@ -31,6 +33,9 @@ func stateStyle(s session.ActivityState) lipgloss.Style {
 func (i sessionItem) Title() string {
 	path := shortenPath(i.session.ProjectPath)
 	stateEmoji := i.session.State.Emoji()
+	if i.session.Pinned {
+		stateEmoji = "📌" + stateEmoji
+	}
 
 	title := fmt.Sprintf("%s %s", stateEmoji, stateStyle(i.session.State).Render(path))
 	if i.session.GitBranch != "" {
@@ -41,6 +46,9 @@ func (i sessionItem) Title() string {
 
 func (i sessionItem) Description() string {
 	desc := i.session.Summary
+	if desc == "" {
+		desc = i.session.InitialPrompt
+	}
 	if desc == "" {
 		desc = "No summary"
 	}

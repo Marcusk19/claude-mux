@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mkok/claude-mux/internal/pin"
 	"github.com/mkok/claude-mux/internal/session"
 )
 
@@ -92,6 +93,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected = &s
 				m.quitting = true
 				return m, tea.Quit
+			}
+		case "p":
+			if item, ok := m.list.SelectedItem().(sessionItem); ok {
+				pin.Toggle(item.session.ProjectPath)
+				return m, pollSessions
 			}
 		}
 	}
