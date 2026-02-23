@@ -62,11 +62,22 @@ func ListPanes() ([]PaneInfo, error) {
 }
 
 // IsClaudePane checks if a pane is running Claude Code.
+// The pane title persists after a process exits, so we can't rely on it alone.
+// We require either a semver command (Claude Code's process name) or both
+// a "Claude Code" title and a non-shell command (ruling out exited sessions).
 func IsClaudePane(p PaneInfo) bool {
-	if strings.Contains(p.PaneTitle, "Claude Code") {
+	if semverRe.MatchString(p.PaneCommand) {
 		return true
 	}
-	if semverRe.MatchString(p.PaneCommand) {
+	if strings.Contains(p.PaneTitle, "Claude Code") && !isShell(p.PaneCommand) {
+		return true
+	}
+	return false
+}
+
+func isShell(cmd string) bool {
+	switch cmd {
+	case "zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh":
 		return true
 	}
 	return false

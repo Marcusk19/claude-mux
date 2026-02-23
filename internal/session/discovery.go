@@ -35,6 +35,7 @@ func DiscoverSessions() ([]ClaudeSession, error) {
 		entry, err := findMostRecentSession(p.PanePath)
 		if err == nil && entry != nil {
 			cs.Summary = entry.Summary
+			cs.InitialPrompt = entry.FirstPrompt
 			cs.GitBranch = entry.GitBranch
 			cs.MessageCount = entry.MessageCount
 			if t, err := time.Parse(time.RFC3339Nano, entry.Modified); err == nil {
@@ -45,6 +46,11 @@ func DiscoverSessions() ([]ClaudeSession, error) {
 			if entry.FullPath != "" {
 				if lastTime, _, err := readJSONLTail(entry.FullPath, 8192); err == nil {
 					cs.LastActivity = lastTime
+				}
+
+				// If no summary, read the first user prompt from the JSONL as a fallback
+				if cs.Summary == "" && cs.InitialPrompt == "" {
+					cs.InitialPrompt = readFirstUserPrompt(entry.FullPath)
 				}
 			}
 		}

@@ -42,6 +42,9 @@ func (i sessionItem) Title() string {
 func (i sessionItem) Description() string {
 	desc := i.session.Summary
 	if desc == "" {
+		desc = i.session.InitialPrompt
+	}
+	if desc == "" {
 		desc = "No summary"
 	}
 

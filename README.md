@@ -8,13 +8,13 @@ A tmux plugin that shows all active Claude Code sessions in a popup overlay. See
 ┌─────────────── Claude Code Sessions ───────────────┐
 │                                                     │
 │  ⚡ ~/projects/my-api   main              (cyan)    │
-│     Add pagination to /users endpoint   [12s ago]   │
+│     add pagination to the /users endpoint [12s ago] │
 │                                                     │
 │  🔐 ~/projects/web-app   master          (orange)   │
-│     Fix authentication redirect loop    [1m ago]    │
+│     fix the auth redirect loop on /login  [1m ago]  │
 │                                                     │
 │  ⏳ ~/projects/infra   feat/monitoring    (green)    │
-│     Set up Prometheus monitoring stack  [5m ago]     │
+│     set up prometheus monitoring stack    [5m ago]   │
 │                                                     │
 │  j/k navigate  / filter  enter jump  q quit         │
 └─────────────────────────────────────────────────────┘
@@ -27,7 +27,7 @@ Session paths are **color-coded by state** so you can scan status at a glance:
 - 🔐 **Orange** — Claude needs permission to proceed
 - ❓ **Gray** — Claude Code detected but state couldn't be determined
 
-The description line shows the **session summary** (the static chat title from Claude's session index).
+The description line shows a **truncated snippet of the initial user prompt** — what you first asked Claude in each session. Falls back to the session summary if the prompt can't be read.
 
 ## Requirements
 
