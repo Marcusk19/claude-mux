@@ -89,6 +89,24 @@ set -g @claude-mux-width '80%'    # Popup width (default: 80%)
 set -g @claude-mux-height '70%'   # Popup height (default: 70%)
 ```
 
+### Notification sound
+
+When hooks are configured, claude-mux plays a sound when Claude needs your attention (`Stop`, `Notification`, and permission prompt events). This uses `afplay` on macOS.
+
+| `CLAUDE_MUX_SOUND` | Behavior |
+|---|---|
+| *(unset)* | Plays `/System/Library/Sounds/Tink.aiff` |
+| Path to a sound file | Plays that file instead |
+| `0` | Disables sound |
+
+```bash
+# Use a different sound
+export CLAUDE_MUX_SOUND="/System/Library/Sounds/Glass.aiff"
+
+# Disable sound
+export CLAUDE_MUX_SOUND=0
+```
+
 ## State detection via Claude Code hooks
 
 By default, session state is inferred from the pane title (braille characters = working, `✳` = waiting). For **more accurate state detection** — distinguishing permission prompts from regular waiting, and faster state transitions — configure Claude Code hooks.
