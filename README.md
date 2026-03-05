@@ -95,7 +95,7 @@ When hooks are configured, claude-mux plays a sound when Claude needs your atten
 
 | `CLAUDE_MUX_SOUND` | Behavior |
 |---|---|
-| *(unset)* | Plays `/System/Library/Sounds/Tink.aiff` |
+| *(unset)* | Plays `/System/Library/Sounds/Funk.aiff` |
 | Path to a sound file | Plays that file instead |
 | `0` | Disables sound |
 

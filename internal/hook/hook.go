@@ -234,7 +234,7 @@ func playSound() {
 		return
 	}
 	if sound == "" {
-		sound = "/System/Library/Sounds/Tink.aiff"
+		sound = "/System/Library/Sounds/Funk.aiff"
 	}
 	cmd := exec.Command("afplay", sound)
 	_ = cmd.Start() // fire and forget
