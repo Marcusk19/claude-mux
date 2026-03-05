@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -84,6 +85,7 @@ func Handle(event string) error {
 				state.Message = msg
 			}
 		}
+		playSound()
 
 	case "Notification":
 		switch input.NotificationType {
@@ -93,6 +95,7 @@ func Handle(event string) error {
 			state.Status = "waiting"
 		}
 		state.Message = truncate(input.Message, 120)
+		playSound()
 
 	default:
 		return nil
@@ -223,6 +226,18 @@ func shortenFilePath(p string) string {
 		p = "~" + p[len(home):]
 	}
 	return truncate(p, 120)
+}
+
+func playSound() {
+	sound := os.Getenv("CLAUDE_MUX_SOUND")
+	if sound == "0" {
+		return
+	}
+	if sound == "" {
+		sound = "/System/Library/Sounds/Funk.aiff"
+	}
+	cmd := exec.Command("afplay", sound)
+	_ = cmd.Start() // fire and forget
 }
 
 func truncate(s string, max int) string {
