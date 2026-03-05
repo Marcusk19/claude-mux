@@ -95,6 +95,74 @@ func truncatePrompt(s string, max int) string {
 	return s[:max-1] + "…"
 }
 
+// readLastAssistantText reads the tail of a JSONL file and returns the text
+// content of the last assistant message, truncated for display.
+func readLastAssistantText(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+
+	const tailBytes int64 = 32768
+	offset := info.Size() - tailBytes
+	if offset < 0 {
+		offset = 0
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return ""
+	}
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return ""
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		var entry promptEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry.Type != "assistant" {
+			continue
+		}
+		var msg promptMessage
+		if err := json.Unmarshal(entry.Message, &msg); err != nil {
+			continue
+		}
+		// Content can be a string or an array of blocks.
+		var text string
+		if err := json.Unmarshal(msg.Content, &text); err == nil {
+			text = strings.TrimSpace(text)
+			if text != "" {
+				return truncatePrompt(text, 500)
+			}
+			continue
+		}
+		var blocks []promptContentBlock
+		if err := json.Unmarshal(msg.Content, &blocks); err != nil {
+			continue
+		}
+		// Find the last text block in this message
+		for j := len(blocks) - 1; j >= 0; j-- {
+			if blocks[j].Type == "text" && strings.TrimSpace(blocks[j].Text) != "" {
+				return truncatePrompt(strings.TrimSpace(blocks[j].Text), 500)
+			}
+		}
+	}
+	return ""
+}
+
 // readJSONLTail reads the last tailBytes of a JSONL file and returns the
 // timestamp and type of the last entry that has both fields.
 func readJSONLTail(path string, tailBytes int64) (lastTime time.Time, lastType string, err error) {

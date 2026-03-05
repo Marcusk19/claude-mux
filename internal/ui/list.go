@@ -12,7 +12,8 @@ import (
 
 // sessionItem implements the list.DefaultItem interface for bubbles list.
 type sessionItem struct {
-	session session.ClaudeSession
+	session  session.ClaudeSession
+	maxWidth int // available width for text wrapping
 }
 
 func stateStyle(s session.ActivityState) lipgloss.Style {
@@ -45,18 +46,34 @@ func (i sessionItem) Title() string {
 }
 
 func (i sessionItem) Description() string {
-	desc := i.session.Summary
-	if desc == "" {
-		desc = i.session.InitialPrompt
+	s := i.session
+
+	// Line 1: summary or initial prompt with timestamp
+	line1 := s.Summary
+	if line1 == "" {
+		line1 = s.InitialPrompt
 	}
-	if desc == "" {
-		desc = "No summary"
+	if line1 == "" {
+		line1 = "No summary"
+	}
+	if !s.LastActivity.IsZero() {
+		line1 += "  " + agoStyle.Render("["+timeAgo(s.LastActivity)+"]")
 	}
 
-	if !i.session.LastActivity.IsZero() {
-		desc += "  " + agoStyle.Render("["+timeAgo(i.session.LastActivity)+"]")
+	// Line 2+: live status or last assistant message, word-wrapped
+	var activity string
+	if s.LiveStatus != "" {
+		activity = s.LiveStatus
+	} else if s.CurrentActivity != "" {
+		activity = s.CurrentActivity
 	}
-	return desc
+
+	if activity == "" {
+		return line1
+	}
+
+	wrapped := wordWrap(activity, i.maxWidth, 2)
+	return line1 + "\n" + activityStyle.Render("💬 "+wrapped)
 }
 
 func (i sessionItem) FilterValue() string {
@@ -73,6 +90,48 @@ func shortenPath(p string) string {
 		p = "~" + p[len(home):]
 	}
 	return p
+}
+
+// wordWrap wraps text to fit within maxWidth, breaking at word boundaries.
+// Returns at most maxLines lines (default 2).
+func wordWrap(s string, maxWidth int, maxLines int) string {
+	if maxWidth <= 0 {
+		maxWidth = 80
+	}
+	if maxLines <= 0 {
+		maxLines = 2
+	}
+	// Account for the 💬 prefix (~4 chars with emoji width)
+	lineWidth := maxWidth - 4
+
+	var lines []string
+	remaining := s
+	for i := 0; i < maxLines && remaining != ""; i++ {
+		if len(remaining) <= lineWidth {
+			lines = append(lines, remaining)
+			remaining = ""
+			break
+		}
+		breakAt := lineWidth
+		for breakAt > 0 && remaining[breakAt] != ' ' {
+			breakAt--
+		}
+		if breakAt == 0 {
+			breakAt = lineWidth
+		}
+		lines = append(lines, remaining[:breakAt])
+		remaining = strings.TrimSpace(remaining[breakAt:])
+	}
+	// If there's still text left, truncate the last line
+	if remaining != "" && len(lines) > 0 {
+		last := lines[len(lines)-1]
+		if len(last)+3 < lineWidth {
+			lines[len(lines)-1] = last + "…"
+		} else {
+			lines[len(lines)-1] = last[:lineWidth-1] + "…"
+		}
+	}
+	return strings.Join(lines, "\n   ")
 }
 
 // timeAgo returns a human-readable "time ago" string.

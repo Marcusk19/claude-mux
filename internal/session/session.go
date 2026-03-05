@@ -57,8 +57,9 @@ type ClaudeSession struct {
 	LastActivity time.Time
 	State        ActivityState
 	ProjectPath  string
-	InitialPrompt string // truncated first user message in the session
-	LiveStatus    string // live status message from hooks (what Claude is doing/asking)
+	InitialPrompt   string // truncated first user message in the session
+	CurrentActivity string // last assistant message text, truncated
+	LiveStatus      string // live status message from hooks (what Claude is doing/asking)
 	LiveTool      string // current tool being used
 	Pinned        bool   // user-pinned to top of list
 }

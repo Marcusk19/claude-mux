@@ -55,6 +55,8 @@ func DiscoverSessions() ([]ClaudeSession, error) {
 					cs.LastActivity = lastTime
 				}
 
+				cs.CurrentActivity = readLastAssistantText(entry.FullPath)
+
 				// If no summary, read the first user prompt from the JSONL as a fallback
 				if cs.Summary == "" && cs.InitialPrompt == "" {
 					cs.InitialPrompt = readFirstUserPrompt(entry.FullPath)

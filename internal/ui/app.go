@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -20,11 +21,12 @@ type tickMsg time.Time
 
 // Model is the Bubble Tea model for the session list.
 type Model struct {
-	list     list.Model
-	selected *session.ClaudeSession
-	quitting bool
-	width    int
-	height   int
+	list       list.Model
+	selected   *session.ClaudeSession
+	quitting   bool
+	width      int
+	height     int
+	totalCount int
 }
 
 // Selected returns the session the user chose, or nil if they quit.
@@ -35,6 +37,7 @@ func (m *Model) Selected() *session.ClaudeSession {
 // NewModel creates a new TUI model.
 func NewModel() *Model {
 	delegate := list.NewDefaultDelegate()
+	delegate.SetHeight(4)
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
 		Foreground(lipgloss.Color("117")).
 		BorderForeground(lipgloss.Color("62"))
@@ -45,10 +48,11 @@ func NewModel() *Model {
 	l := list.New(nil, delegate, 0, 0)
 	l.Title = "Claude Code Sessions"
 	l.Styles.Title = titleStyle
-	l.SetShowStatusBar(true)
+	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(true)
 	l.SetShowHelp(true)
 	l.DisableQuitKeybindings()
+	l.SetStatusBarItemName("session", "sessions")
 
 	return &Model{list: l}
 }
@@ -68,9 +72,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionsMsg:
 		items := make([]list.Item, len(msg))
-		for i, s := range msg {
-			items[i] = sessionItem{session: s}
+		// Reserve space for list chrome (borders, padding, cursor prefix)
+		itemWidth := m.width - 8
+		if itemWidth < 40 {
+			itemWidth = 40
 		}
+		for i, s := range msg {
+			items[i] = sessionItem{session: s, maxWidth: itemWidth}
+		}
+		m.totalCount = len(msg)
 		cmd := m.list.SetItems(items)
 		return m, cmd
 
@@ -111,7 +121,8 @@ func (m *Model) View() string {
 	if m.quitting {
 		return ""
 	}
-	return appStyle.Render(m.list.View())
+	footer := footerStyle.Render(fmt.Sprintf(" %d/%d sessions ", m.list.Index()+1, m.totalCount))
+	return appStyle.Render(m.list.View() + "\n" + footer)
 }
 
 func pollSessions() tea.Msg {
