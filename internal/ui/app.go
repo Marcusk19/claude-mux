@@ -148,7 +148,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, pollWorktrees
 
 	case tickMsg:
-		return m, tea.Batch(pollSessions, pollWorktrees, tickCmd())
+		return m, tea.Batch(pollSessions, tickCmd())
 
 	case tea.KeyMsg:
 		// Handle confirmation prompt first
@@ -180,9 +180,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = ""
 			if m.activeTab == TabSessions {
 				m.activeTab = TabWorktrees
-			} else {
-				m.activeTab = TabSessions
+				return m, pollWorktrees
 			}
+			m.activeTab = TabSessions
 			return m, nil
 		case "enter":
 			return m, m.handleEnter()
