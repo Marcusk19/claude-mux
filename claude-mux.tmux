@@ -27,3 +27,16 @@ if [ "$has_popup" = "1" ]; then
 else
     tmux bind-key "$key" new-window "'$BINARY'"
 fi
+
+# Worktree split keybindings
+worktree_h_key=$(tmux show-option -gqv @claude-mux-worktree-h-key)
+worktree_h_key=${worktree_h_key:-T}
+
+worktree_v_key=$(tmux show-option -gqv @claude-mux-worktree-v-key)
+worktree_v_key=${worktree_v_key:-t}
+
+WORKTREE_SCRIPT="$CURRENT_DIR/scripts/worktree-split.sh"
+
+# -v = horizontal split (panes stacked), -h = vertical split (panes side by side)
+tmux bind-key "$worktree_h_key" run-shell "'$WORKTREE_SCRIPT' -v '#{pane_current_path}'"
+tmux bind-key "$worktree_v_key" run-shell "'$WORKTREE_SCRIPT' -h '#{pane_current_path}'"
