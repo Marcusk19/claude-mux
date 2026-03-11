@@ -6,6 +6,8 @@ type keyMap struct {
 	Quit   key.Binding
 	Select key.Binding
 	Pin    key.Binding
+	Tab    key.Binding
+	Remove key.Binding
 }
 
 var keys = keyMap{
@@ -20,5 +22,13 @@ var keys = keyMap{
 	Pin: key.NewBinding(
 		key.WithKeys("p"),
 		key.WithHelp("p", "pin/unpin"),
+	),
+	Tab: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "switch tab"),
+	),
+	Remove: key.NewBinding(
+		key.WithKeys("d", "x"),
+		key.WithHelp("d/x", "remove worktree"),
 	),
 }

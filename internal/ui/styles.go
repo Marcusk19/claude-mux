@@ -21,4 +21,6 @@ var (
 	agoStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	activityStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Italic(true)
 	footerStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Padding(0, 1)
+	confirmStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true).Padding(0, 1)
+	statusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("40")).Padding(0, 1)
 )

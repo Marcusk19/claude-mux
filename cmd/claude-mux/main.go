@@ -32,8 +32,14 @@ func main() {
 	}
 
 	if model, ok := finalModel.(*ui.Model); ok {
+		var pane *tmux.PaneInfo
 		if selected := model.Selected(); selected != nil {
-			if err := tmux.SelectPane(selected.Pane); err != nil {
+			pane = &selected.Pane
+		} else if p := model.SelectedPane(); p != nil {
+			pane = p
+		}
+		if pane != nil {
+			if err := tmux.SelectPane(*pane); err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to switch pane: %v\n", err)
 				os.Exit(1)
 			}

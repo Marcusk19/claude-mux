@@ -31,7 +31,8 @@ cmd/claude-mux/main.go
   └── internal/tmux      (pane jump after TUI exits)
 
 internal/ui
-  └── internal/session   (DiscoverSessions called on 2s poll)
+  ├── internal/session   (DiscoverSessions called on 2s poll)
+  └── internal/worktree  (DiscoverWorktrees called on 2s poll)
 
 internal/session
   ├── internal/tmux      (ListPanes, IsClaudePane)
@@ -69,7 +70,13 @@ Matched to sessions by checking if `<session-id>.jsonl` exists in the project's 
 
 ### TUI
 
-Uses Bubble Tea with the Bubbles `list` component. Polls `session.DiscoverSessions()` every 2 seconds via `tea.Tick`. The `sessionItem` type implements `list.DefaultItem` (Title/Description/FilterValue). On enter, the selected `ClaudeSession` is stored and the program exits; `main()` then calls `tmux.SelectPane()`.
+Uses Bubble Tea with the Bubbles `list` component. Two tabs: **Sessions** and **Worktrees**, switched with `Tab`.
+
+**Sessions tab**: Polls `session.DiscoverSessions()` every 2 seconds via `tea.Tick`. The `sessionItem` type implements `list.DefaultItem`. On enter, jumps to the selected session's pane. Press `p` to pin/unpin.
+
+**Worktrees tab**: Polls `worktree.DiscoverWorktrees()` on the same 2s tick. Shows all git worktrees discovered from tmux pane paths. Worktrees with active Claude sessions are marked with `*` and can be jumped to with `Enter`. Press `d`/`x` to remove a worktree (confirmation required). Main worktrees cannot be removed. Removing a worktree with an active session shows a warning but is allowed.
+
+Key packages: `internal/ui/tabs.go` (tab bar rendering), `internal/ui/worktree_list.go` (worktree list items), `internal/worktree/worktree.go` (discovery and removal via `git worktree` commands).
 
 ### Worktree split keybindings
 
