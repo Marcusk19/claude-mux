@@ -23,8 +23,9 @@ type worktreesMsg []worktree.Worktree
 
 // removeResultMsg carries the result of a worktree removal.
 type removeResultMsg struct {
-	path string
-	err  error
+	path  string
+	err   error
+	force bool // whether this was already a --force attempt
 }
 
 // tickMsg triggers a poll for sessions.
@@ -43,6 +44,7 @@ type Model struct {
 	totalCount    int
 	worktreeCount int
 	confirmRemove *worktree.Worktree
+	forceRemove   bool   // true when confirming a force removal after normal remove failed
 	statusMessage string
 	sessions      []session.ClaudeSession // keep for cross-referencing
 }
@@ -140,11 +142,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case removeResultMsg:
 		if msg.err != nil {
-			m.statusMessage = fmt.Sprintf("Error: %v", msg.err)
+			if msg.force {
+				// Force removal also failed — nothing more we can do
+				m.statusMessage = fmt.Sprintf("Error: %v", msg.err)
+				m.confirmRemove = nil
+				m.forceRemove = false
+			} else {
+				// Normal remove failed — offer force removal
+				m.statusMessage = fmt.Sprintf("%v", msg.err)
+				m.forceRemove = true
+				// Re-find the worktree to populate confirmRemove for the force prompt
+				if m.confirmRemove == nil {
+					for i := range m.worktreeList.Items() {
+						if item, ok := m.worktreeList.Items()[i].(worktreeItem); ok && item.wt.Path == msg.path {
+							m.confirmRemove = &item.wt
+							break
+						}
+					}
+				}
+			}
 		} else {
 			m.statusMessage = fmt.Sprintf("Removed %s", shortenPath(msg.path))
+			m.confirmRemove = nil
+			m.forceRemove = false
 		}
-		m.confirmRemove = nil
 		return m, pollWorktrees
 
 	case tickMsg:
@@ -156,10 +177,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "y", "Y":
 				wt := m.confirmRemove
-				m.confirmRemove = nil
-				return m, removeWorktreeCmd(wt.RepoRoot, wt.Path, wt.HasSession)
+				force := m.forceRemove
+				if !force {
+					// Keep confirmRemove set so we can re-populate it on failure
+				} else {
+					m.confirmRemove = nil
+				}
+				m.forceRemove = false
+				return m, removeWorktreeCmd(wt.RepoRoot, wt.Path, force)
 			case "n", "N", "esc":
 				m.confirmRemove = nil
+				m.forceRemove = false
 				m.statusMessage = ""
 				return m, nil
 			}
@@ -282,11 +310,17 @@ func (m *Model) View() string {
 	} else {
 		var footer string
 		if m.confirmRemove != nil {
-			prompt := fmt.Sprintf("Remove %s? ", shortenPath(m.confirmRemove.Path))
-			if m.statusMessage != "" {
-				prompt = m.statusMessage + " " + prompt
+			var prompt string
+			if m.forceRemove {
+				prompt = fmt.Sprintf("%s — Force remove? (y/n)", m.statusMessage)
+			} else {
+				prompt = fmt.Sprintf("Remove %s? ", shortenPath(m.confirmRemove.Path))
+				if m.statusMessage != "" {
+					prompt = m.statusMessage + " " + prompt
+				}
+				prompt += "(y/n)"
 			}
-			footer = confirmStyle.Render(prompt + "(y/n)")
+			footer = confirmStyle.Render(prompt)
 		} else if m.statusMessage != "" {
 			footer = statusStyle.Render(m.statusMessage)
 		} else {
@@ -353,7 +387,7 @@ func pollWorktrees() tea.Msg {
 func removeWorktreeCmd(repoRoot, path string, force bool) tea.Cmd {
 	return func() tea.Msg {
 		err := worktree.Remove(repoRoot, path, force)
-		return removeResultMsg{path: path, err: err}
+		return removeResultMsg{path: path, err: err, force: force}
 	}
 }
 
