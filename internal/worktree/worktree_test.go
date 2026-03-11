@@ -101,19 +101,11 @@ func TestDiscoverWorktrees_SeparateCloneIsNotWorktree(t *testing.T) {
 		t.Errorf("clone-a added worktree (%s) not found in results: %+v", wtPath, cloneAEntries)
 	}
 
-	// clone-b should have exactly 1 entry: its own main worktree.
-	// It must NOT contain clone-a's worktree or clone-a itself.
-	var cloneBEntries []entry
+	// clone-b has no additional worktrees, so it should be excluded entirely.
 	for _, e := range entries {
 		if e.repoRoot == cloneB {
-			cloneBEntries = append(cloneBEntries, e)
+			t.Errorf("clone-b should not appear (no additional worktrees), got %+v", e)
 		}
-	}
-	if len(cloneBEntries) != 1 {
-		t.Fatalf("expected 1 worktree for clone-b, got %d: %+v", len(cloneBEntries), cloneBEntries)
-	}
-	if cloneBEntries[0].path != cloneB || !cloneBEntries[0].isMain {
-		t.Errorf("clone-b entry should be its own main worktree, got %+v", cloneBEntries[0])
 	}
 
 	// The added worktree must NOT appear under clone-b's repo root.

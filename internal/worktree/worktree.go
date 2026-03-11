@@ -36,6 +36,10 @@ func DiscoverWorktrees(panePaths []string) ([]Worktree, error) {
 			continue
 		}
 		wts := parseWorktreeList(string(out), root)
+		// Skip repos that only have the main worktree (no actual worktrees created)
+		if len(wts) <= 1 {
+			continue
+		}
 		all = append(all, wts...)
 	}
 	return all, nil
