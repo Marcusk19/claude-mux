@@ -38,26 +38,35 @@ func (i sessionItem) Title() string {
 		stateEmoji = "📌" + stateEmoji
 	}
 
-	title := fmt.Sprintf("%s %s", stateEmoji, stateStyle(i.session.State).Render(path))
+	left := fmt.Sprintf("%s %s", stateEmoji, stateStyle(i.session.State).Render(path))
 	if i.session.GitBranch != "" {
-		title += "  " + branchStyle.Render(i.session.GitBranch)
+		left += "  " + branchStyle.Render(i.session.GitBranch)
 	}
-	return title
+
+	if i.session.LastActivity.IsZero() {
+		return left
+	}
+
+	ago := agoStyle.Render("[" + timeAgo(i.session.LastActivity) + "]")
+	leftWidth := lipgloss.Width(left)
+	agoWidth := lipgloss.Width(ago)
+	gap := i.maxWidth - leftWidth - agoWidth
+	if gap < 2 {
+		gap = 2
+	}
+	return left + strings.Repeat(" ", gap) + ago
 }
 
 func (i sessionItem) Description() string {
 	s := i.session
 
-	// Line 1: summary or initial prompt with timestamp
+	// Line 1: summary or initial prompt
 	line1 := s.Summary
 	if line1 == "" {
 		line1 = s.InitialPrompt
 	}
 	if line1 == "" {
 		line1 = "No summary"
-	}
-	if !s.LastActivity.IsZero() {
-		line1 += "  " + agoStyle.Render("["+timeAgo(s.LastActivity)+"]")
 	}
 
 	// Line 2+: live status or last assistant message, word-wrapped

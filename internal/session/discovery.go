@@ -77,13 +77,10 @@ func DiscoverSessions() ([]ClaudeSession, error) {
 		sessions = append(sessions, cs)
 	}
 
-	// Sort: pinned first, then by state (working first), then by last activity (most recent first)
+	// Sort: pinned first, then by last activity (most recent first)
 	sort.Slice(sessions, func(i, j int) bool {
 		if sessions[i].Pinned != sessions[j].Pinned {
 			return sessions[i].Pinned
-		}
-		if sessions[i].State != sessions[j].State {
-			return sessions[i].State < sessions[j].State
 		}
 		return sessions[i].LastActivity.After(sessions[j].LastActivity)
 	})
