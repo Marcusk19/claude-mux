@@ -28,4 +28,5 @@ fi
 
 worktree_dir=$(cd "$worktree_dir" && pwd)
 
-tmux split-window "$SPLIT_FLAG" -c "$worktree_dir" "claude"
+tmux split-window "$SPLIT_FLAG" -c "$worktree_dir" \
+  "claude; if [[ '$(basename "$worktree_dir")' == *-wt-[0-9]*-[0-9a-f]* ]]; then cd / && git -C '$repo_root' worktree remove '$worktree_dir' --force 2>/dev/null; git -C '$repo_root' branch -D '$branch_name' 2>/dev/null; fi"

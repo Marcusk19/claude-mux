@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -36,11 +37,18 @@ func DiscoverWorktrees(panePaths []string) ([]Worktree, error) {
 			continue
 		}
 		wts := parseWorktreeList(string(out), root)
-		// Skip repos that only have the main worktree (no actual worktrees created)
-		if len(wts) <= 1 {
+		// Only keep main worktrees and those created by the plugin
+		var filtered []Worktree
+		for _, wt := range wts {
+			if wt.IsMain || IsPluginWorktree(wt.Path) {
+				filtered = append(filtered, wt)
+			}
+		}
+		// Skip repos that only have the main worktree (no plugin worktrees)
+		if len(filtered) <= 1 {
 			continue
 		}
-		all = append(all, wts...)
+		all = append(all, filtered...)
 	}
 	return all, nil
 }
@@ -108,6 +116,16 @@ func parseWorktreeList(output string, repoRoot string) []Worktree {
 	}
 
 	return worktrees
+}
+
+// pluginWorktreePattern matches directory names created by worktree-split.sh:
+// <repo>-wt-<YYYYMMDD-HHMMSS>-<hex>
+var pluginWorktreePattern = regexp.MustCompile(`-wt-\d{8}-\d{6}-[0-9a-f]+$`)
+
+// IsPluginWorktree returns true if the path's basename matches the naming
+// pattern used by the worktree-split.sh script.
+func IsPluginWorktree(path string) bool {
+	return pluginWorktreePattern.MatchString(filepath.Base(path))
 }
 
 // RepoName returns the base directory name of the repo root.
