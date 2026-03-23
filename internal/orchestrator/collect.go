@@ -25,32 +25,28 @@ type CollectResult struct {
 
 // Collect gathers results from completed subagents.
 func Collect(opts CollectOpts) ([]CollectResult, error) {
-	orchID, err := resolveOrchestratorID()
-	if err != nil {
-		return nil, err
-	}
-
-	states, err := listStates(orchID)
-	if err != nil {
-		return nil, err
-	}
-
-	// First, refresh statuses (detect completion for panes that exited)
-	refreshStatuses(orchID, states)
-
-	// Re-read after refresh
-	states, err = listStates(orchID)
+	// Use Status() to get live state (including hook enrichment and pane exit detection)
+	statusResults, err := Status()
 	if err != nil {
 		return nil, err
 	}
 
 	var results []CollectResult
-	for _, s := range states {
+	for _, sr := range statusResults {
+		s := sr.SubagentState
 		if opts.TaskID != "" && s.TaskID != opts.TaskID {
 			continue
 		}
-		if s.Status != "completed" {
-			continue
+		// Treat as collectable if:
+		// 1. Persisted status is "completed" (pane exited with commits), or
+		// 2. Hook reports "done", or
+		// 3. Branch has commits beyond HEAD (work was committed even if pane/hook are stale)
+		isCompleted := s.Status == "completed" || sr.LiveStatus == "done"
+		if !isCompleted {
+			// Check if branch has commits as a fallback
+			if detectCompletion(s) != "completed" {
+				continue
+			}
 		}
 
 		r := CollectResult{
@@ -87,6 +83,15 @@ func Collect(opts CollectOpts) ([]CollectResult, error) {
 			} else {
 				r.Merged = true
 			}
+		}
+
+		// Kill the pane if it's still open
+		exec.Command("tmux", "kill-pane", "-t", s.PaneID).Run()
+
+		// Mark as completed in state
+		if s.Status == "running" {
+			s.Status = "completed"
+			writeState(s)
 		}
 
 		results = append(results, r)
@@ -127,8 +132,3 @@ func FormatCollect(results []CollectResult) string {
 	return b.String()
 }
 
-// refreshStatuses updates status for subagents whose panes may have exited.
-func refreshStatuses(orchID string, states []SubagentState) {
-	// Just call Status() which handles the refresh logic
-	Status()
-}
