@@ -24,6 +24,7 @@ type State struct {
 	Message   string `json:"message"` // short description of current state
 	Tool      string `json:"tool"`    // current tool being used (if any)
 	Timestamp string `json:"timestamp"`
+	PaneID    string `json:"pane_id,omitempty"` // tmux pane ID (e.g. %5)
 }
 
 // hookInput is the JSON structure received from Claude Code hooks via stdin.
@@ -66,6 +67,7 @@ func Handle(event string) error {
 	state := State{
 		SessionID: input.SessionID,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		PaneID:    os.Getenv("TMUX_PANE"),
 	}
 
 	switch event {
@@ -118,8 +120,8 @@ func ReadState(sessionID string) (*State, error) {
 	return &s, nil
 }
 
-// ReadStateByPath finds a state file matching a project path by scanning all state files.
-func ReadStateByPath(projectPath string) (*State, error) {
+// ReadStateByPaneID finds the most recent state file for a given tmux pane ID.
+func ReadStateByPaneID(paneID string) (*State, error) {
 	dir := StateDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -133,12 +135,16 @@ func ReadStateByPath(projectPath string) (*State, error) {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
+
 		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			continue
 		}
 		var s State
 		if err := json.Unmarshal(data, &s); err != nil {
+			continue
+		}
+		if s.PaneID != paneID {
 			continue
 		}
 		t, err := time.Parse(time.RFC3339, s.Timestamp)

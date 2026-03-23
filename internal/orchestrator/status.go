@@ -117,7 +117,7 @@ func enrichWithHookState(r *StatusResult) {
 	// We need to find a hook state that matches this subagent's pane.
 	// The hook session ID is in the JSONL filename, not directly tied to our task ID.
 	// For now, try to find a recent hook state by scanning.
-	state, err := hook.ReadStateByPath(r.WorktreePath)
+	state, err := hook.ReadStateByPaneID(r.PaneID)
 	if err != nil {
 		return
 	}

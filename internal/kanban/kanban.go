@@ -43,23 +43,25 @@ func DiscoverKanban(sessionName, windowIndex string) ([]PaneCard, error) {
 			card.GitBranch = branch
 		}
 
-		// Enrich with live hook state
-		hookState, err := hook.ReadStateByPath(p.PanePath)
-		if err == nil && hookState != nil {
-			t, err := time.Parse(time.RFC3339, hookState.Timestamp)
-			if err == nil && time.Since(t) < 5*time.Minute {
-				card.LiveStatus = hookState.Message
-				card.LiveTool = hookState.Tool
+		// Enrich with live hook state matched by tmux pane ID
+		if p.PaneID != "" {
+			hookState, err := hook.ReadStateByPaneID(p.PaneID)
+			if err == nil && hookState != nil {
+				t, err := time.Parse(time.RFC3339, hookState.Timestamp)
+				if err == nil && time.Since(t) < 5*time.Minute {
+					card.LiveStatus = hookState.Message
+					card.LiveTool = hookState.Tool
 
-				switch hookState.Status {
-				case "working":
-					card.State = session.StateWorking
-				case "waiting":
-					card.State = session.StateWaiting
-				case "permission":
-					card.State = session.StatePermission
-				case "done":
-					card.State = session.StateDone
+					switch hookState.Status {
+					case "working":
+						card.State = session.StateWorking
+					case "waiting":
+						card.State = session.StateWaiting
+					case "permission":
+						card.State = session.StatePermission
+					case "done":
+						card.State = session.StateDone
+					}
 				}
 			}
 		}
