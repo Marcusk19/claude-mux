@@ -11,11 +11,11 @@ type Tab int
 
 const (
 	TabKanban    Tab = iota
-	TabSessions
+	TabGlobal
 	TabWorktrees
 )
 
-var tabNames = []string{"Kanban", "Sessions", "Worktrees"}
+var tabNames = []string{"Kanban", "Global", "Worktrees"}
 
 var (
 	activeTabStyle = lipgloss.NewStyle().
@@ -49,5 +49,5 @@ func renderTabBar(active Tab, width int) string {
 
 func tabBarHeight() int {
 	// tab row + border bottom + newline
-	return strings.Count(renderTabBar(TabSessions, 80), "\n") + 1
+	return strings.Count(renderTabBar(TabGlobal, 80), "\n") + 1
 }
