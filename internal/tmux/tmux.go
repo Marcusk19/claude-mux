@@ -16,6 +16,7 @@ type PaneInfo struct {
 	PaneCommand string
 	PanePath    string
 	PaneID      string
+	WindowName  string
 }
 
 const delimiter = "%%DELIM%%"
@@ -32,6 +33,7 @@ func ListPanes() ([]PaneInfo, error) {
 		"#{pane_current_command}",
 		"#{pane_current_path}",
 		"#{pane_id}",
+		"#{window_name}",
 	}, delimiter)
 
 	out, err := exec.Command("tmux", "list-panes", "-a", "-F", format).Output()
@@ -45,7 +47,7 @@ func ListPanes() ([]PaneInfo, error) {
 			continue
 		}
 		parts := strings.Split(line, delimiter)
-		if len(parts) != 7 {
+		if len(parts) != 8 {
 			continue
 		}
 		panes = append(panes, PaneInfo{
@@ -56,6 +58,7 @@ func ListPanes() ([]PaneInfo, error) {
 			PaneCommand: parts[4],
 			PanePath:    parts[5],
 			PaneID:      parts[6],
+			WindowName:  parts[7],
 		})
 	}
 	return panes, nil
@@ -93,6 +96,7 @@ func ListWindowPanes(sessionName, windowIndex string) ([]PaneInfo, error) {
 		"#{pane_current_command}",
 		"#{pane_current_path}",
 		"#{pane_id}",
+		"#{window_name}",
 	}, delimiter)
 
 	target := fmt.Sprintf("%s:%s", sessionName, windowIndex)
@@ -107,7 +111,7 @@ func ListWindowPanes(sessionName, windowIndex string) ([]PaneInfo, error) {
 			continue
 		}
 		parts := strings.Split(line, delimiter)
-		if len(parts) != 7 {
+		if len(parts) != 8 {
 			continue
 		}
 		panes = append(panes, PaneInfo{
@@ -118,6 +122,7 @@ func ListWindowPanes(sessionName, windowIndex string) ([]PaneInfo, error) {
 			PaneCommand: parts[4],
 			PanePath:    parts[5],
 			PaneID:      parts[6],
+			WindowName:  parts[7],
 		})
 	}
 	return panes, nil
