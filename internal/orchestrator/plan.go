@@ -72,11 +72,15 @@ func Plan(opts PlanOpts) error {
 		PlanID    string
 		AutoMerge bool
 		MaxAgents int
+		Task      string
+		Context   string
 	}{
 		PlanDir:   filepath.Join(".claude-mux", "plan-"+planID),
 		PlanID:    planID,
 		AutoMerge: opts.AutoMerge,
 		MaxAgents: opts.MaxAgents,
+		Task:      opts.Task,
+		Context:   contextBuf.String(),
 	}
 
 	systemPromptFile := filepath.Join(planDir, "system-prompt.txt")
@@ -90,42 +94,10 @@ func Plan(opts PlanOpts) error {
 	}
 	sf.Close()
 
-	// Render initial message
-	msgTmpl, err := template.New("message").Parse(plannerInitialMessageTmpl)
-	if err != nil {
-		return fmt.Errorf("parsing initial message template: %w", err)
-	}
-
-	msgData := struct {
-		Task    string
-		Context string
-	}{
-		Task:    opts.Task,
-		Context: contextBuf.String(),
-	}
-
-	initialMessageFile := filepath.Join(planDir, "initial-message.txt")
-	mf, err := os.Create(initialMessageFile)
-	if err != nil {
-		return fmt.Errorf("creating initial message file: %w", err)
-	}
-	if err := msgTmpl.Execute(mf, msgData); err != nil {
-		mf.Close()
-		return fmt.Errorf("rendering initial message: %w", err)
-	}
-	mf.Close()
-
 	// Build claude command args
-	relSystemPrompt := filepath.Join(".claude-mux", "plan-"+planID, "system-prompt.txt")
-	relInitialMessage := filepath.Join(".claude-mux", "plan-"+planID, "initial-message.txt")
-
-	systemPrompt, err := os.ReadFile(filepath.Join(repoRoot, relSystemPrompt))
+	systemPrompt, err := os.ReadFile(systemPromptFile)
 	if err != nil {
 		return fmt.Errorf("reading system prompt: %w", err)
-	}
-	initialMessage, err := os.ReadFile(filepath.Join(repoRoot, relInitialMessage))
-	if err != nil {
-		return fmt.Errorf("reading initial message: %w", err)
 	}
 
 	claudeBin, err := exec.LookPath("claude")
@@ -133,19 +105,18 @@ func Plan(opts PlanOpts) error {
 		return fmt.Errorf("claude not found in PATH: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Starting plan session %s — collaborate on your PRD, then say \"execute\" to launch the swarm.\n", planID)
+	fmt.Fprintf(os.Stderr, "Plan session %s — explore the codebase, iterate on a plan, then say \"execute\" to hand off to the swarm.\n", planID)
 
-	// Replace current process with claude
+	// Replace current process with claude (no initial message — user drives the conversation)
 	args := []string{
 		"claude",
 		"--append-system-prompt", string(systemPrompt),
-		string(initialMessage),
 	}
 
 	return syscall.Exec(claudeBin, args, os.Environ())
 }
 
-const plannerSystemPromptTmpl = `You are a project planner helping the user flesh out a task into a fully specified PRD (Product Requirements Document) that will be executed by a swarm of AI coding agents.
+const plannerSystemPromptTmpl = `You are a project planner. You operate in planning-only mode: you read files, explore the codebase, ask questions, and iterate on a PRD — but you do NOT edit code or implement anything yourself. Implementation is handed off to a swarm of AI coding agents.
 
 ## Your Role
 
@@ -153,7 +124,7 @@ You are collaborative and conversational. Your job is to:
 
 1. **Understand the goal**: Ask clarifying questions about what the user wants to build or change. Don't assume — dig into requirements, edge cases, and constraints.
 
-2. **Explore the codebase**: Use your tools to read relevant files, understand the architecture, and identify what needs to change. Reference specific files and code.
+2. **Explore the codebase**: Read relevant files, understand the architecture, and identify what needs to change. Reference specific files and code.
 
 3. **Draft the PRD**: Once you have enough understanding, write a structured PRD that covers:
    - **Goal**: What we're building and why
@@ -168,31 +139,30 @@ You are collaborative and conversational. Your job is to:
 
 4. **Iterate**: The user may push back, ask for changes, or want to explore alternatives. Revise the PRD until they're happy.
 
-5. **Save and execute**: When the user approves (says "execute", "ship it", "go", "lgtm", or similar), do the following:
+5. **Hand off to the swarm**: When the user approves (says "execute", "ship it", "go", "lgtm", or similar), do the following:
    - Save the final PRD to ` + "`" + `{{.PlanDir}}/prd.md` + "`" + `
-   - Then run the swarm command to kick off execution:
+   - Then hand off to the orchestrator by running:
      ` + "`" + `claude-mux swarm --task "<one-line summary>" --file {{.PlanDir}}/prd.md{{if .AutoMerge}} --auto-merge{{end}} --max-agents {{.MaxAgents}}` + "`" + `
+   - Do NOT attempt to implement the plan yourself. The swarm handles all implementation.
 
 ## Guidelines
 
+- **Planning only** — do not edit files, create files, or run non-read commands. Your output is the PRD.
 - Keep subtasks **independent** to avoid merge conflicts between agents. Each subtask should touch different files where possible.
 - Be opinionated — suggest good approaches rather than listing options endlessly.
 - If the task is small enough for one agent, say so. Not everything needs a swarm.
 - Reference actual code paths and function names from the codebase.
 - The PRD should be detailed enough that an AI agent can implement each subtask without further clarification.
-`
+{{- if .Task}}
 
-const plannerInitialMessageTmpl = `{{- if .Task -}}
-I'd like to work on this: **{{.Task}}**
+## User's Task
+
+The user wants to work on: {{.Task}}
+{{- end}}
 {{- if .Context}}
 
-Here's some additional context:
+## Provided Context
 
 {{.Context}}
-{{- end}}
-
-Help me flesh this out into a full plan before we execute.
-{{- else -}}
-I want to start a new project. Help me figure out what to build and create a plan for it.
 {{- end}}
 `
