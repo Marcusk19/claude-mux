@@ -237,6 +237,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, pollWorktrees
 			}
 			return m, nil
+		case "shift+tab":
+			m.statusMessage = ""
+			m.activeTab = Tab((int(m.activeTab) + len(tabNames) - 1) % len(tabNames))
+			if m.activeTab == TabWorktrees {
+				return m, pollWorktrees
+			}
+			return m, nil
 		case "enter":
 			return m, m.handleEnter()
 		case "p":

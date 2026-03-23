@@ -6,7 +6,8 @@ type keyMap struct {
 	Quit   key.Binding
 	Select key.Binding
 	Pin    key.Binding
-	Tab    key.Binding
+	Tab      key.Binding
+	ShiftTab key.Binding
 	Remove key.Binding
 }
 
@@ -25,7 +26,11 @@ var keys = keyMap{
 	),
 	Tab: key.NewBinding(
 		key.WithKeys("tab"),
-		key.WithHelp("tab", "switch tab"),
+		key.WithHelp("tab", "next tab"),
+	),
+	ShiftTab: key.NewBinding(
+		key.WithKeys("shift+tab"),
+		key.WithHelp("shift+tab", "prev tab"),
 	),
 	Remove: key.NewBinding(
 		key.WithKeys("d", "x"),
