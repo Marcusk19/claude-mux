@@ -64,38 +64,61 @@ func Swarm(opts SwarmOpts) (string, error) {
 		contextBuf.WriteString("```\n")
 	}
 
-	// Render coordinator prompt
-	tmpl, err := template.New("coordinator").Parse(coordinatorPromptTmpl)
+	// Render system prompt (coordinator instructions)
+	sysTmpl, err := template.New("system").Parse(coordinatorSystemPromptTmpl)
 	if err != nil {
-		return "", fmt.Errorf("parsing coordinator template: %w", err)
+		return "", fmt.Errorf("parsing system prompt template: %w", err)
 	}
 
-	promptData := struct {
-		Task      string
-		Context   string
+	sysData := struct {
 		AutoMerge bool
 		MaxAgents int
 	}{
-		Task:      opts.Task,
-		Context:   contextBuf.String(),
 		AutoMerge: opts.AutoMerge,
 		MaxAgents: opts.MaxAgents,
 	}
 
-	promptFile := filepath.Join(swarmDir, "prompt.txt")
-	f, err := os.Create(promptFile)
+	systemPromptFile := filepath.Join(swarmDir, "system-prompt.txt")
+	sf, err := os.Create(systemPromptFile)
 	if err != nil {
-		return "", fmt.Errorf("creating prompt file: %w", err)
+		return "", fmt.Errorf("creating system prompt file: %w", err)
 	}
-	if err := tmpl.Execute(f, promptData); err != nil {
-		f.Close()
-		return "", fmt.Errorf("rendering coordinator prompt: %w", err)
+	if err := sysTmpl.Execute(sf, sysData); err != nil {
+		sf.Close()
+		return "", fmt.Errorf("rendering system prompt: %w", err)
 	}
-	f.Close()
+	sf.Close()
 
-	// Launch coordinator Claude session in a tmux split in the main repo dir
-	shellCmd := fmt.Sprintf(`claude --dangerously-skip-permissions "$(cat %s)"`,
-		filepath.Join(".claude-mux", "swarm-"+swarmID, "prompt.txt"))
+	// Render initial message (task + context)
+	msgTmpl, err := template.New("message").Parse(coordinatorInitialMessageTmpl)
+	if err != nil {
+		return "", fmt.Errorf("parsing initial message template: %w", err)
+	}
+
+	msgData := struct {
+		Task    string
+		Context string
+	}{
+		Task:    opts.Task,
+		Context: contextBuf.String(),
+	}
+
+	initialMessageFile := filepath.Join(swarmDir, "initial-message.txt")
+	mf, err := os.Create(initialMessageFile)
+	if err != nil {
+		return "", fmt.Errorf("creating initial message file: %w", err)
+	}
+	if err := msgTmpl.Execute(mf, msgData); err != nil {
+		mf.Close()
+		return "", fmt.Errorf("rendering initial message: %w", err)
+	}
+	mf.Close()
+
+	// Launch interactive coordinator Claude session in a tmux split
+	relSystemPrompt := filepath.Join(".claude-mux", "swarm-"+swarmID, "system-prompt.txt")
+	relInitialMessage := filepath.Join(".claude-mux", "swarm-"+swarmID, "initial-message.txt")
+	shellCmd := fmt.Sprintf(`claude --append-system-prompt "$(cat %s)" "$(cat %s)"`,
+		relSystemPrompt, relInitialMessage)
 
 	out, err := exec.Command(
 		"tmux", "split-window", "-v",
@@ -116,9 +139,51 @@ func Swarm(opts SwarmOpts) (string, error) {
 	return swarmID, nil
 }
 
-const coordinatorPromptTmpl = `You are a swarm coordinator. Your job is to break down a task into independent subtasks, spawn subagents to implement them, validate results, and collect everything when done.
+const coordinatorSystemPromptTmpl = `You are a swarm coordinator. Your job is to break down a task into independent subtasks, spawn subagents to implement them, validate results, and collect everything when done.
 
-## Task
+## Workflow
+
+1. **Propose a plan**: Analyze the task and present a numbered list of 2-6 subtasks. Explain what each subtask will do and why they are independent. Wait for the user to approve or adjust the plan.
+
+2. **Execute on approval**: Once the user approves, spawn implementers and monitor progress as described below.
+
+## Spawning and monitoring
+
+- **Spawn implementers** for each subtask using:
+  ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>"` + "`" + `
+
+  Spawn at most {{.MaxAgents}} agents at a time. If you have more subtasks than that, wait for some to complete before spawning more.
+
+- **Monitor progress** by running:
+  ` + "`" + `claude-mux status` + "`" + `
+
+  Poll every 30 seconds until agents complete. An agent is "completed" when its tmux pane is gone and it has commits on its branch. An agent is "failed" if its pane is gone with no new commits.
+
+- **Validate completed work**: When an implementer completes, spawn a validator in the same worktree:
+  ` + "`" + `claude-mux spawn --task "validate: review the changes, run tests, and verify correctness" --worktree <worktree_path> --branch <branch_name>` + "`" + `
+
+- **Collect results** when all implementers and validators are done:
+{{- if .AutoMerge}}
+  ` + "`" + `claude-mux collect --merge` + "`" + `
+{{- else}}
+  ` + "`" + `claude-mux collect` + "`" + `
+{{- end}}
+
+- **Report a summary** of what was accomplished, including:
+  - Which subtasks succeeded or failed
+  - Key changes made in each branch
+  - Any issues found during validation
+  - Whether branches were merged (if auto-merge was enabled)
+
+## Rules
+
+- Do NOT modify code directly. Your only job is to coordinate subagents.
+- Keep subtasks focused and independent to minimize merge conflicts.
+- If a subtask fails, you may retry it once with a refined task description.
+- If validation fails, spawn a new implementer to fix the issues in the same worktree.
+`
+
+const coordinatorInitialMessageTmpl = `## Task
 
 {{.Task}}
 {{- if .Context}}
@@ -128,40 +193,5 @@ const coordinatorPromptTmpl = `You are a swarm coordinator. Your job is to break
 {{.Context}}
 {{- end}}
 
-## Instructions
-
-1. **Analyze the task** and break it into 2-6 independent subtasks that can be worked on in parallel. Each subtask should be a self-contained unit of work.
-
-2. **Spawn implementers** for each subtask using:
-   ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>"` + "`" + `
-
-   Spawn at most {{.MaxAgents}} agents at a time. If you have more subtasks than that, wait for some to complete before spawning more.
-
-3. **Monitor progress** by running:
-   ` + "`" + `claude-mux status` + "`" + `
-
-   Poll every 30 seconds until agents complete. An agent is "completed" when its tmux pane is gone and it has commits on its branch. An agent is "failed" if its pane is gone with no new commits.
-
-4. **Validate completed work**: When an implementer completes, spawn a validator in the same worktree:
-   ` + "`" + `claude-mux spawn --task "validate: review the changes, run tests, and verify correctness" --worktree <worktree_path> --branch <branch_name>` + "`" + `
-
-5. **Collect results** when all implementers and validators are done:
-{{- if .AutoMerge}}
-   ` + "`" + `claude-mux collect --merge` + "`" + `
-{{- else}}
-   ` + "`" + `claude-mux collect` + "`" + `
-{{- end}}
-
-6. **Report a summary** of what was accomplished, including:
-   - Which subtasks succeeded or failed
-   - Key changes made in each branch
-   - Any issues found during validation
-   - Whether branches were merged (if auto-merge was enabled)
-
-## Rules
-
-- Do NOT modify code directly. Your only job is to coordinate subagents.
-- Keep subtasks focused and independent to minimize merge conflicts.
-- If a subtask fails, you may retry it once with a refined task description.
-- If validation fails, spawn a new implementer to fix the issues in the same worktree.
+Please analyze this task and propose a plan with subtasks before starting execution.
 `
