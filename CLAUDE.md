@@ -7,9 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 make build        # builds bin/claude-mux
 make clean        # removes binary
+go test ./internal/worktree/   # run worktree tests (only test file so far)
 ```
 
-No tests yet. No linter configured.
+No linter configured.
 
 ## Architecture
 
@@ -26,17 +27,22 @@ The single binary serves two purposes depending on arguments:
 
 ```
 cmd/claude-mux/main.go
-  ├── internal/hook      (hook subcommand)
-  ├── internal/ui        (TUI, depends on internal/session)
-  └── internal/tmux      (pane jump after TUI exits)
+  ├── internal/hook         (hook subcommand)
+  ├── internal/orchestrator (spawn/status/collect/cleanup subcommands)
+  ├── internal/ui           (TUI, depends on internal/session)
+  └── internal/tmux         (pane jump after TUI exits)
 
 internal/ui
-  ├── internal/session   (DiscoverSessions called on 2s poll)
-  └── internal/worktree  (DiscoverWorktrees called on 2s poll)
+  ├── internal/session      (DiscoverSessions called on 2s poll)
+  ├── internal/worktree     (DiscoverWorktrees called on 2s poll)
+  └── internal/pin          (pin/unpin sessions across restarts)
 
 internal/session
-  ├── internal/tmux      (ListPanes, IsClaudePane)
-  └── internal/hook      (ReadState for live status enrichment)
+  ├── internal/tmux         (ListPanes, IsClaudePane)
+  └── internal/hook         (ReadState for live status enrichment)
+
+internal/orchestrator
+  └── internal/tmux         (pane existence checks for status detection)
 ```
 
 ### Session discovery flow
@@ -67,10 +73,22 @@ Matched to sessions by checking if `<session-id>.jsonl` exists in the project's 
 | Session transcript | `~/.claude/projects/<path>/<id>.jsonl` | `session/jsonl.go`, `hook/transcript.go` |
 | Live hook state | `~/.cache/claude-mux/<id>.json` | `session/discovery.go` via `hook.ReadState()` |
 | tmux pane info | `tmux list-panes -a` output | `tmux/tmux.go` |
+| Orchestrator state | `~/.cache/claude-mux/orchestrator/<orch-id>/<task-id>.json` | `orchestrator/orchestrator.go` |
+| Pinned sessions | `~/.cache/claude-mux/pins.json` | `pin/pin.go` |
+
+### Orchestrator
+
+The `internal/orchestrator` package implements multi-agent coordination via CLI subcommands (`spawn`, `status`, `collect`, `cleanup`). Subcommands are routed by `main.go` using `os.Args[1]` — no framework, just a switch statement with `flag.NewFlagSet` per subcommand.
+
+Each spawned subagent gets a `SubagentState` JSON file in `~/.cache/claude-mux/orchestrator/<orchestrator-id>/`. The orchestrator ID is resolved from `CLAUDE_SESSION_ID` env var, then `.claude-mux/orchestrator-id` file, then auto-generated.
+
+Status detection: a subagent is `running` if its tmux pane still exists, `completed` if the pane is gone and the branch has commits beyond the parent, `failed` if the pane is gone with no new commits.
 
 ### TUI
 
-Uses Bubble Tea with the Bubbles `list` component. Two tabs: **Sessions** and **Worktrees**, switched with `Tab`.
+Uses Bubble Tea with the Bubbles `list` component. Three tabs: **Kanban** (default), **Sessions**, and **Worktrees**, switched with `Tab`.
+
+**Kanban tab** (default): Shows Claude agents in the current tmux window as equal-width columns. Each card displays pane index, git branch, state (working/waiting/permission/done), current tool, and live status. Arrow keys navigate between cards, Enter jumps to the selected pane. Polls `kanban.DiscoverKanban()` every 2s. Current window is detected via `CLAUDE_MUX_SESSION`/`CLAUDE_MUX_WINDOW` env vars (set by tmux keybinding) with fallback to `tmux display-message`. Key packages: `internal/kanban/kanban.go` (discovery), `internal/ui/kanban_view.go` (rendering).
 
 **Sessions tab**: Polls `session.DiscoverSessions()` every 2 seconds via `tea.Tick`. The `sessionItem` type implements `list.DefaultItem`. On enter, jumps to the selected session's pane. Press `p` to pin/unpin.
 
