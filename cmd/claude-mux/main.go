@@ -31,6 +31,9 @@ func main() {
 		case "cleanup":
 			runCleanup()
 			return
+		case "swarm":
+			runSwarm()
+			return
 		}
 	}
 
@@ -121,6 +124,39 @@ func runCleanup() {
 		os.Exit(1)
 	}
 	fmt.Println("Cleanup complete.")
+}
+
+func runSwarm() {
+	fs := flag.NewFlagSet("swarm", flag.ExitOnError)
+	task := fs.String("task", "", "task description (required)")
+	context := fs.String("context", "", "additional context")
+	filesFlag := fs.String("file", "", "comma-separated file paths to include")
+	autoMerge := fs.Bool("auto-merge", false, "auto-merge completed branches")
+	maxAgents := fs.Int("max-agents", 3, "max concurrent subagents")
+	fs.Parse(os.Args[2:])
+
+	if *task == "" {
+		fmt.Fprintf(os.Stderr, "error: --task is required\n")
+		os.Exit(1)
+	}
+
+	var files []string
+	if *filesFlag != "" {
+		files = strings.Split(*filesFlag, ",")
+	}
+
+	swarmID, err := orchestrator.Swarm(orchestrator.SwarmOpts{
+		Task:      *task,
+		Context:   *context,
+		Files:     files,
+		AutoMerge: *autoMerge,
+		MaxAgents: *maxAgents,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "swarm error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println(swarmID)
 }
 
 func runTUI() {
