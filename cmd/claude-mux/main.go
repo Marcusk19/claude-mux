@@ -37,11 +37,58 @@ func main() {
 		case "plan":
 			runPlan()
 			return
+		case "--help", "-h", "help":
+			printUsage()
+			return
 		}
 	}
 
 	// Default: launch TUI
 	runTUI()
+}
+
+func printUsage() {
+	fmt.Println(`Usage: claude-mux [command] [flags]
+
+Commands:
+  (none)      Launch the TUI overlay (default)
+  hook        Process a Claude Code hook event from stdin
+              Usage: claude-mux hook <event>
+
+  spawn       Spawn a subagent in a new worktree
+              --task string       task description (required)
+              --context string    additional context
+              --file string       comma-separated file paths to include
+              --worktree string   reuse an existing worktree path
+              --branch string     branch name for the existing worktree
+
+  status      Show status of all subagents
+
+  collect     Collect results from completed subagents
+              --task-id string    collect a specific subagent
+              --merge             merge completed branches
+              --cleanup           remove worktrees after collecting
+
+  cleanup     Remove subagent worktrees and state
+              --task-id string    clean up a specific subagent
+              --force             remove running subagents too
+
+  swarm       Coordinate multiple subagents for a task
+              --task string       task description (required)
+              --context string    additional context
+              --file string       comma-separated file paths to include
+              --auto-merge        auto-merge completed branches
+              --max-agents int    max concurrent subagents (default 3)
+
+  plan        Interactive PRD planning that can launch a swarm
+              --task string       initial task idea (optional)
+              --context string    additional context
+              --file string       comma-separated file paths to include
+              --auto-merge        auto-merge completed branches when swarm executes
+              --max-agents int    max concurrent subagents (default 3)
+
+Flags:
+  --help, -h  Show this help message`)
 }
 
 func runHook() {
