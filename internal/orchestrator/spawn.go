@@ -153,7 +153,7 @@ func writeTaskFile(worktreeDir string, opts SpawnOpts) error {
 }
 
 func paneExists(paneID string) bool {
-	err := exec.Command("tmux", "display-message", "-p", "-t", paneID, "").Run()
+	err := exec.Command("tmux", "display-message", "-p", "-t", paneID, "#{pane_id}").Run()
 	return err == nil
 }
 
