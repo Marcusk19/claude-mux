@@ -206,12 +206,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "tab":
 			m.statusMessage = ""
-			if m.activeTab == TabSessions {
+			switch m.activeTab {
+			case TabKanban:
+				m.activeTab = TabSessions
+				return m, pollSessions
+			case TabSessions:
 				m.activeTab = TabWorktrees
 				return m, pollWorktrees
+			case TabWorktrees:
+				m.activeTab = TabKanban
+				return m, nil
 			}
-			m.activeTab = TabSessions
-			return m, nil
 		case "enter":
 			return m, m.handleEnter()
 		case "p":

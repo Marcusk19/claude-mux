@@ -10,11 +10,12 @@ import (
 type Tab int
 
 const (
-	TabSessions  Tab = iota
+	TabKanban    Tab = iota
+	TabSessions
 	TabWorktrees
 )
 
-var tabNames = []string{"Sessions", "Worktrees"}
+var tabNames = []string{"Kanban", "Sessions", "Worktrees"}
 
 var (
 	activeTabStyle = lipgloss.NewStyle().
