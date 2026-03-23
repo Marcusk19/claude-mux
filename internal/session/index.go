@@ -118,3 +118,13 @@ func findMostRecentSession(panePath string) (*indexEntry, error) {
 	}
 	return best, nil
 }
+
+// ReadLatestIndex returns the summary and git branch from the most recent session
+// for the given pane path.
+func ReadLatestIndex(panePath string) (summary string, branch string, err error) {
+	entry, err := findMostRecentSession(panePath)
+	if err != nil {
+		return "", "", err
+	}
+	return entry.Summary, entry.GitBranch, nil
+}

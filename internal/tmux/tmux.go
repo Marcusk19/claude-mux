@@ -83,6 +83,59 @@ func isShell(cmd string) bool {
 	return false
 }
 
+// ListWindowPanes returns all tmux panes in a specific window.
+func ListWindowPanes(sessionName, windowIndex string) ([]PaneInfo, error) {
+	format := strings.Join([]string{
+		"#{session_name}",
+		"#{window_index}",
+		"#{pane_index}",
+		"#{pane_title}",
+		"#{pane_current_command}",
+		"#{pane_current_path}",
+		"#{pane_id}",
+	}, delimiter)
+
+	target := fmt.Sprintf("%s:%s", sessionName, windowIndex)
+	out, err := exec.Command("tmux", "list-panes", "-t", target, "-F", format).Output()
+	if err != nil {
+		return nil, fmt.Errorf("tmux list-panes -t %s: %w", target, err)
+	}
+
+	var panes []PaneInfo
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, delimiter)
+		if len(parts) != 7 {
+			continue
+		}
+		panes = append(panes, PaneInfo{
+			SessionName: parts[0],
+			WindowIndex: parts[1],
+			PaneIndex:   parts[2],
+			PaneTitle:   parts[3],
+			PaneCommand: parts[4],
+			PanePath:    parts[5],
+			PaneID:      parts[6],
+		})
+	}
+	return panes, nil
+}
+
+// CurrentWindow returns the session name and window index of the current tmux window.
+func CurrentWindow() (sessionName, windowIndex string, err error) {
+	out, err := exec.Command("tmux", "display-message", "-p", "#{session_name}"+delimiter+"#{window_index}").Output()
+	if err != nil {
+		return "", "", fmt.Errorf("tmux display-message: %w", err)
+	}
+	parts := strings.Split(strings.TrimSpace(string(out)), delimiter)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("unexpected tmux output: %s", string(out))
+	}
+	return parts[0], parts[1], nil
+}
+
 // SelectPane switches tmux focus to the given pane.
 func SelectPane(p PaneInfo) error {
 	target := fmt.Sprintf("%s:%s.%s", p.SessionName, p.WindowIndex, p.PaneIndex)

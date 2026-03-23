@@ -34,7 +34,7 @@ func DiscoverSessions() ([]ClaudeSession, error) {
 
 		cs := ClaudeSession{
 			Pane:        p,
-			State:       inferState(p.PaneTitle),
+			State:       InferState(p.PaneTitle),
 			ProjectPath: p.PanePath,
 		}
 
@@ -88,10 +88,10 @@ func DiscoverSessions() ([]ClaudeSession, error) {
 	return sessions, nil
 }
 
-// inferState determines the activity state from the pane title prefix.
+// InferState determines the activity state from the pane title prefix.
 // Braille characters (⠁-⣿) indicate spinner = working.
 // ✳ indicates waiting for input.
-func inferState(title string) ActivityState {
+func InferState(title string) ActivityState {
 	for _, r := range title {
 		if r == '✳' {
 			return StateWaiting
