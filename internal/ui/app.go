@@ -11,6 +11,7 @@ import (
 	"github.com/mkok/claude-mux/internal/pin"
 	"github.com/mkok/claude-mux/internal/session"
 	"github.com/mkok/claude-mux/internal/tmux"
+	"github.com/mkok/claude-mux/internal/windowname"
 	"github.com/mkok/claude-mux/internal/worktree"
 )
 
@@ -47,11 +48,17 @@ type Model struct {
 	confirmRemove *worktree.Worktree
 	forceRemove   bool   // true when confirming a force removal after normal remove failed
 	statusMessage string
-	sessions      []session.ClaudeSession // keep for cross-referencing
-	kanbanCards   []kanban.PaneCard
-	kanbanSession string // tmux session name for current window
-	kanbanWindow  string // tmux window index for current window
-	selectedCard  int    // selected card index in kanban view
+	sessions        []session.ClaudeSession // keep for cross-referencing
+	kanbanCards     []kanban.PaneCard
+	kanbanSession   string // tmux session name for current window
+	kanbanWindow    string // tmux window index for current window
+	selectedCard    int    // selected card index in kanban view
+	globalGrouped   bool
+	collapsedGroups map[string]bool
+	windowNames     map[string]string
+	renaming        bool
+	renameInput     string
+	renameTarget    string
 }
 
 // Selected returns the session the user chose, or nil if they quit.
@@ -104,7 +111,15 @@ func NewModel(kanbanSession, kanbanWindow string) *Model {
 	wl.DisableQuitKeybindings()
 	wl.SetStatusBarItemName("worktree", "worktrees")
 
-	return &Model{list: l, worktreeList: wl, kanbanSession: kanbanSession, kanbanWindow: kanbanWindow}
+	return &Model{
+		list:            l,
+		worktreeList:    wl,
+		kanbanSession:   kanbanSession,
+		kanbanWindow:    kanbanWindow,
+		globalGrouped:   true,
+		collapsedGroups: make(map[string]bool),
+		windowNames:     windowname.Load(),
+	}
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -128,16 +143,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionsMsg:
 		m.sessions = []session.ClaudeSession(msg)
-		items := make([]list.Item, len(msg))
-		itemWidth := m.width - 8
-		if itemWidth < 40 {
-			itemWidth = 40
-		}
-		for i, s := range msg {
-			items[i] = sessionItem{session: s, maxWidth: itemWidth}
-		}
 		m.totalCount = len(msg)
-		cmd := m.list.SetItems(items)
+		cmd := m.list.SetItems(m.buildGlobalItems())
 		return m, cmd
 
 	case worktreesMsg:
@@ -210,6 +217,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Handle rename mode
+		if m.renaming {
+			switch msg.Type {
+			case tea.KeyEnter:
+				m.windowNames[m.renameTarget] = m.renameInput
+				_ = windowname.Save(m.windowNames)
+				m.renaming = false
+				cmd := m.list.SetItems(m.buildGlobalItems())
+				return m, cmd
+			case tea.KeyEsc:
+				m.renaming = false
+				return m, nil
+			case tea.KeyBackspace:
+				if len(m.renameInput) > 0 {
+					m.renameInput = m.renameInput[:len(m.renameInput)-1]
+				}
+				return m, nil
+			case tea.KeyRunes:
+				m.renameInput += string(msg.Runes)
+				return m, nil
+			}
+			return m, nil
+		}
+
 		// Don't intercept keys while filtering
 		activeList := m.activeList()
 		if activeList.FilterState() == list.Filtering {
@@ -245,7 +276,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "enter":
+			if m.activeTab == TabGlobal {
+				if _, ok := m.list.SelectedItem().(groupHeaderItem); ok {
+					return m, m.handleGroupHeaderEnter()
+				}
+			}
 			return m, m.handleEnter()
+		case "g":
+			if m.activeTab == TabGlobal {
+				m.globalGrouped = !m.globalGrouped
+				cmd := m.list.SetItems(m.buildGlobalItems())
+				return m, cmd
+			}
+		case "r":
+			if m.activeTab == TabGlobal {
+				if item, ok := m.list.SelectedItem().(groupHeaderItem); ok {
+					m.renaming = true
+					m.renameTarget = item.key
+					m.renameInput = item.name
+					return m, nil
+				}
+			}
 		case "p":
 			if m.activeTab == TabGlobal {
 				if item, ok := m.list.SelectedItem().(sessionItem); ok {
@@ -334,6 +385,29 @@ func (m *Model) handleRemove() tea.Cmd {
 	return nil
 }
 
+func (m *Model) buildGlobalItems() []list.Item {
+	itemWidth := m.width - 8
+	if itemWidth < 40 {
+		itemWidth = 40
+	}
+	if m.globalGrouped {
+		return groupedSessionItems(m.sessions, m.windowNames, m.collapsedGroups, itemWidth)
+	}
+	items := make([]list.Item, len(m.sessions))
+	for i, s := range m.sessions {
+		items[i] = sessionItem{session: s, maxWidth: itemWidth}
+	}
+	return items
+}
+
+func (m *Model) handleGroupHeaderEnter() tea.Cmd {
+	if item, ok := m.list.SelectedItem().(groupHeaderItem); ok {
+		m.collapsedGroups[item.key] = !m.collapsedGroups[item.key]
+		return m.list.SetItems(m.buildGlobalItems())
+	}
+	return nil
+}
+
 func (m *Model) findPaneByID(paneID string) *tmux.PaneInfo {
 	for _, s := range m.sessions {
 		if s.Pane.PaneID == paneID {
@@ -358,7 +432,12 @@ func (m *Model) View() string {
 		kanbanHeight := m.height - v - tabBarHeight()
 		content = renderKanban(m.kanbanCards, m.selectedCard, m.width-h, kanbanHeight)
 	case TabGlobal:
-		footer := footerStyle.Render(fmt.Sprintf(" %d/%d sessions ", m.list.Index()+1, m.totalCount))
+		var footer string
+		if m.renaming {
+			footer = confirmStyle.Render(fmt.Sprintf("Rename: %s█", m.renameInput))
+		} else {
+			footer = footerStyle.Render(fmt.Sprintf(" %d/%d sessions ", m.list.Index()+1, m.totalCount))
+		}
 		content = m.list.View() + "\n" + footer
 	default: // TabWorktrees
 		var footer string

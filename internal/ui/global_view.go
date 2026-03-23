@@ -37,7 +37,7 @@ type sessionGroup struct {
 }
 
 // groupedSessionItems groups sessions by window and inserts group headers.
-func groupedSessionItems(sessions []session.ClaudeSession, maxWidth int) []list.Item {
+func groupedSessionItems(sessions []session.ClaudeSession, customNames map[string]string, collapsed map[string]bool, maxWidth int) []list.Item {
 	if len(sessions) == 0 {
 		return nil
 	}
@@ -64,7 +64,7 @@ func groupedSessionItems(sessions []session.ClaudeSession, maxWidth int) []list.
 		for _, s := range g.sessions {
 			paths = append(paths, s.Pane.PanePath)
 		}
-		g.displayName = windowname.DisplayName(key, paths)
+		g.displayName = windowname.DisplayName(key, customNames, paths)
 	}
 
 	// Sort groups by most recent activity
@@ -79,13 +79,17 @@ func groupedSessionItems(sessions []session.ClaudeSession, maxWidth int) []list.
 	// Build flat list with headers
 	var items []list.Item
 	for _, g := range groups {
+		isCollapsed := collapsed[g.key]
 		items = append(items, groupHeaderItem{
-			key:   g.key,
-			name:  g.displayName,
-			count: len(g.sessions),
+			key:       g.key,
+			name:      g.displayName,
+			count:     len(g.sessions),
+			collapsed: isCollapsed,
 		})
-		for _, s := range g.sessions {
-			items = append(items, sessionItem{session: s, maxWidth: maxWidth})
+		if !isCollapsed {
+			for _, s := range g.sessions {
+				items = append(items, sessionItem{session: s, maxWidth: maxWidth})
+			}
 		}
 	}
 
