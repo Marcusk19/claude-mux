@@ -107,6 +107,100 @@ export CLAUDE_MUX_SOUND="/System/Library/Sounds/Glass.aiff"
 export CLAUDE_MUX_SOUND=0
 ```
 
+## Agent orchestration
+
+claude-mux includes CLI subcommands for orchestrating multiple Claude Code agents. An orchestrator Claude Code session can spawn subagents in separate tmux panes, each working in an isolated git worktree. No MCP server or API keys needed — subcommands are called via Bash.
+
+### Subcommands
+
+#### `claude-mux spawn`
+
+Creates a git worktree, writes a task file, and opens a new tmux pane with an interactive Claude Code session.
+
+```bash
+claude-mux spawn --task "Add input validation to the API" [--context "Use zod for schema validation"] [--file src/api.ts]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--task` | Task description (required) |
+| `--context` | Additional context to include in the task file |
+| `--file` | Comma-separated file paths to embed in the task file |
+
+Prints the task ID to stdout. The subagent runs interactively with `--dangerously-skip-permissions` so it can work autonomously.
+
+#### `claude-mux status`
+
+Shows the current state of all subagents for the current orchestrator.
+
+```bash
+claude-mux status
+```
+
+```
+[20260323-143052-a1b2c3] running  (worktree/20260323-143052-a1b2c3, 45s ago)
+  Task: Add input validation to the API
+  Tool: Edit
+  Pane: %42  Worktree: ~/projects/my-api-wt-20260323-143052-a1b2c3
+```
+
+Status is detected automatically: `running` if the tmux pane exists, `completed` if the pane is gone and the branch has commits, `failed` if the pane is gone with no commits. Live tool activity is enriched from hook state files.
+
+#### `claude-mux collect`
+
+Gathers results (commits and diff stats) from completed subagents.
+
+```bash
+claude-mux collect [--task-id ID] [--merge] [--cleanup]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--task-id` | Collect a specific subagent's results |
+| `--merge` | Merge completed branches into the current branch |
+| `--cleanup` | Remove worktrees and branches after collecting |
+
+#### `claude-mux cleanup`
+
+Removes worktrees, branches, and state files for completed subagents.
+
+```bash
+claude-mux cleanup [--task-id ID] [--force]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--task-id` | Clean up a specific subagent |
+| `--force` | Also remove running subagents |
+
+### Orchestrator identity
+
+Subagents are grouped by orchestrator ID, resolved in order:
+
+1. `CLAUDE_SESSION_ID` environment variable (set automatically by Claude Code)
+2. `.claude-mux/orchestrator-id` file in the repo root
+3. Auto-generated and persisted to the file above
+
+### Workflow example
+
+From an orchestrator Claude Code session:
+
+```bash
+# Spawn parallel subagents
+claude-mux spawn --task "Add user authentication with JWT tokens"
+claude-mux spawn --task "Add rate limiting middleware"
+claude-mux spawn --task "Add request logging with structured output"
+
+# Monitor progress
+claude-mux status
+
+# Collect results when done
+claude-mux collect
+
+# Merge and clean up
+claude-mux collect --merge --cleanup
+```
+
 ## State detection via Claude Code hooks
 
 By default, session state is inferred from the pane title (braille characters = working, `✳` = waiting). For **more accurate state detection** — distinguishing permission prompts from regular waiting, and faster state transitions — configure Claude Code hooks.
