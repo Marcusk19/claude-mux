@@ -59,6 +59,9 @@ type Model struct {
 	renaming        bool
 	renameInput     string
 	renameTarget    string
+	globalCursor    int
+	globalScroll    int
+	globalItems     []selectableItem // cached selectable items for grouped mode
 }
 
 // Selected returns the session the user chose, or nil if they quit.
@@ -144,6 +147,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionsMsg:
 		m.sessions = []session.ClaudeSession(msg)
 		m.totalCount = len(msg)
+		m.rebuildGlobalState()
 		cmd := m.list.SetItems(m.buildGlobalItems())
 		return m, cmd
 
@@ -275,7 +279,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, pollWorktrees
 			}
 			return m, nil
+		case "up", "k":
+			if m.activeTab == TabGlobal && m.globalGrouped {
+				if m.globalCursor > 0 {
+					m.globalCursor--
+				}
+				return m, nil
+			}
+		case "down", "j":
+			if m.activeTab == TabGlobal && m.globalGrouped {
+				if m.globalCursor < len(m.globalItems)-1 {
+					m.globalCursor++
+				}
+				return m, nil
+			}
 		case "enter":
+			if m.activeTab == TabGlobal && m.globalGrouped {
+				return m, m.handleGroupedEnter()
+			}
 			if m.activeTab == TabGlobal {
 				if _, ok := m.list.SelectedItem().(groupHeaderItem); ok {
 					return m, m.handleGroupHeaderEnter()
@@ -285,11 +306,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "g":
 			if m.activeTab == TabGlobal {
 				m.globalGrouped = !m.globalGrouped
+				m.rebuildGlobalState()
 				cmd := m.list.SetItems(m.buildGlobalItems())
 				return m, cmd
 			}
 		case "r":
-			if m.activeTab == TabGlobal {
+			if m.activeTab == TabGlobal && m.globalGrouped {
+				if m.globalCursor < len(m.globalItems) && m.globalItems[m.globalCursor].isHeader {
+					item := m.globalItems[m.globalCursor]
+					m.renaming = true
+					m.renameTarget = item.groupKey
+					m.renameInput = item.header.name
+					return m, nil
+				}
+			} else if m.activeTab == TabGlobal {
 				if item, ok := m.list.SelectedItem().(groupHeaderItem); ok {
 					m.renaming = true
 					m.renameTarget = item.key
@@ -298,7 +328,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "p":
-			if m.activeTab == TabGlobal {
+			if m.activeTab == TabGlobal && m.globalGrouped {
+				if m.globalCursor < len(m.globalItems) && !m.globalItems[m.globalCursor].isHeader {
+					pin.Toggle(m.globalItems[m.globalCursor].session.ProjectPath)
+					return m, pollSessions
+				}
+			} else if m.activeTab == TabGlobal {
 				if item, ok := m.list.SelectedItem().(sessionItem); ok {
 					pin.Toggle(item.session.ProjectPath)
 					return m, pollSessions
@@ -311,8 +346,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Delegate to active list (skip for kanban which doesn't use a list)
+	// Delegate to active list (skip for kanban and grouped global which use custom rendering)
 	if m.activeTab == TabKanban {
+		return m, nil
+	}
+	if m.activeTab == TabGlobal && m.globalGrouped {
 		return m, nil
 	}
 	var cmd tea.Cmd
@@ -385,6 +423,33 @@ func (m *Model) handleRemove() tea.Cmd {
 	return nil
 }
 
+func (m *Model) rebuildGlobalState() {
+	m.globalItems = buildSelectableItems(m.sessions, m.windowNames, m.collapsedGroups)
+	if m.globalCursor >= len(m.globalItems) {
+		m.globalCursor = len(m.globalItems) - 1
+	}
+	if m.globalCursor < 0 {
+		m.globalCursor = 0
+	}
+}
+
+func (m *Model) handleGroupedEnter() tea.Cmd {
+	if m.globalCursor >= len(m.globalItems) {
+		return nil
+	}
+	item := m.globalItems[m.globalCursor]
+	if item.isHeader {
+		m.collapsedGroups[item.groupKey] = !m.collapsedGroups[item.groupKey]
+		m.rebuildGlobalState()
+		return nil
+	}
+	// Session item — jump to pane
+	s := item.session
+	m.selected = &s
+	m.quitting = true
+	return tea.Quit
+}
+
 func (m *Model) buildGlobalItems() []list.Item {
 	itemWidth := m.width - 8
 	if itemWidth < 40 {
@@ -435,10 +500,22 @@ func (m *Model) View() string {
 		var footer string
 		if m.renaming {
 			footer = confirmStyle.Render(fmt.Sprintf("Rename: %s█", m.renameInput))
+		} else if m.globalGrouped {
+			pos := 0
+			if len(m.globalItems) > 0 {
+				pos = m.globalCursor + 1
+			}
+			footer = footerStyle.Render(fmt.Sprintf(" %d/%d items  g:flat  r:rename ", pos, len(m.globalItems)))
 		} else {
-			footer = footerStyle.Render(fmt.Sprintf(" %d/%d sessions ", m.list.Index()+1, m.totalCount))
+			footer = footerStyle.Render(fmt.Sprintf(" %d/%d sessions  g:grouped ", m.list.Index()+1, m.totalCount))
 		}
-		content = m.list.View() + "\n" + footer
+		if m.globalGrouped {
+			h, v := appStyle.GetFrameSize()
+			groupedHeight := m.height - v - tabBarHeight() - 2 // footer
+			content = renderGroupedGlobal(m.sessions, m.windowNames, m.collapsedGroups, m.globalCursor, m.globalScroll, m.width-h, groupedHeight) + "\n" + footer
+		} else {
+			content = m.list.View() + "\n" + footer
+		}
 	default: // TabWorktrees
 		var footer string
 		if m.confirmRemove != nil {
