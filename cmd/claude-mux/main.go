@@ -55,6 +55,8 @@ func runSpawn() {
 	task := fs.String("task", "", "task description (required)")
 	context := fs.String("context", "", "additional context")
 	filesFlag := fs.String("file", "", "comma-separated file paths to include")
+	worktree := fs.String("worktree", "", "reuse an existing worktree path")
+	branch := fs.String("branch", "", "branch name for the existing worktree")
 	fs.Parse(os.Args[2:])
 
 	if *task == "" {
@@ -68,9 +70,11 @@ func runSpawn() {
 	}
 
 	taskID, err := orchestrator.Spawn(orchestrator.SpawnOpts{
-		Task:    *task,
-		Context: *context,
-		Files:   files,
+		Task:         *task,
+		Context:      *context,
+		Files:        files,
+		WorktreePath: *worktree,
+		BranchName:   *branch,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "spawn error: %v\n", err)

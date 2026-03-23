@@ -11,9 +11,11 @@ import (
 
 // SpawnOpts configures a subagent spawn.
 type SpawnOpts struct {
-	Task    string   // required: task description
-	Context string   // optional: additional context
-	Files   []string // optional: file paths to include in task file
+	Task         string   // required: task description
+	Context      string   // optional: additional context
+	Files        []string // optional: file paths to include in task file
+	WorktreePath string   // optional: reuse an existing worktree instead of creating one
+	BranchName   string   // optional: branch name for the existing worktree
 }
 
 // Spawn creates a worktree, writes a task file, opens a tmux pane with claude, and saves state.
@@ -30,20 +32,39 @@ func Spawn(opts SpawnOpts) (string, error) {
 	}
 
 	taskID := generateTaskID()
-	repoName := filepath.Base(repoRoot)
-	branchName := "worktree/" + taskID
-	worktreeDir := filepath.Join(filepath.Dir(repoRoot), repoName+"-wt-"+taskID)
 
-	// Create worktree
-	out, err := exec.Command("git", "worktree", "add", worktreeDir, "-b", branchName).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("creating worktree: %s: %s", err, strings.TrimSpace(string(out)))
-	}
+	var absWorktree, branchName string
 
-	// Resolve to absolute path
-	absWorktree, err := filepath.Abs(worktreeDir)
-	if err != nil {
-		absWorktree = worktreeDir
+	if opts.WorktreePath != "" {
+		// Reuse an existing worktree
+		absWorktree, err = filepath.Abs(opts.WorktreePath)
+		if err != nil {
+			absWorktree = opts.WorktreePath
+		}
+		branchName = opts.BranchName
+		if branchName == "" {
+			// Detect branch from the worktree
+			out, err := exec.Command("git", "-C", absWorktree, "rev-parse", "--abbrev-ref", "HEAD").Output()
+			if err != nil {
+				return "", fmt.Errorf("detecting branch in worktree: %w", err)
+			}
+			branchName = strings.TrimSpace(string(out))
+		}
+	} else {
+		// Create a new worktree
+		repoName := filepath.Base(repoRoot)
+		branchName = "worktree/" + taskID
+		worktreeDir := filepath.Join(filepath.Dir(repoRoot), repoName+"-wt-"+taskID)
+
+		out, err := exec.Command("git", "worktree", "add", worktreeDir, "-b", branchName).CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("creating worktree: %s: %s", err, strings.TrimSpace(string(out)))
+		}
+
+		absWorktree, err = filepath.Abs(worktreeDir)
+		if err != nil {
+			absWorktree = worktreeDir
+		}
 	}
 
 	// Write task file
