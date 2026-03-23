@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -50,9 +52,12 @@ type Model struct {
 	statusMessage string
 	sessions        []session.ClaudeSession // keep for cross-referencing
 	kanbanCards     []kanban.PaneCard
-	kanbanSession   string // tmux session name for current window
-	kanbanWindow    string // tmux window index for current window
-	selectedCard    int    // selected card index in kanban view
+	kanbanBoard     *kanban.Board
+	kanbanViewBoard KanbanBoard // computed view-layer board
+	kanbanSession   string      // tmux session name for current window
+	kanbanWindow    string      // tmux window index for current window
+	selectedCol     int         // selected column (0-2) in kanban view
+	selectedRow     int         // selected row within column
 	globalGrouped   bool
 	collapsedGroups map[string]bool
 	windowNames     map[string]string
@@ -130,7 +135,60 @@ func (m *Model) Init() tea.Cmd {
 }
 
 func (m *Model) pollKanbanCmd() tea.Cmd {
-	return pollKanbanCmd(m.kanbanSession, m.kanbanWindow)
+	sessionName := m.kanbanSession
+	windowIndex := m.kanbanWindow
+	return func() tea.Msg {
+		cards, _ := kanban.DiscoverKanban(sessionName, windowIndex)
+		return kanbanMsg(cards)
+	}
+}
+
+func pollKanbanBoardCmd(kanbanCards []kanban.PaneCard) tea.Cmd {
+	return func() tea.Msg {
+		// Derive repo root from the first pane card's path
+		var repoRoot string
+		for _, pc := range kanbanCards {
+			if pc.Pane.PanePath != "" {
+				out, err := exec.Command("git", "-C", pc.Pane.PanePath, "rev-parse", "--show-toplevel").Output()
+				if err == nil {
+					repoRoot = strings.TrimSpace(string(out))
+					break
+				}
+			}
+		}
+		if repoRoot == "" {
+			return kanbanBoardMsg{board: nil}
+		}
+		board, err := kanban.LoadBoard(repoRoot)
+		if err != nil {
+			return kanbanBoardMsg{board: nil}
+		}
+		return kanbanBoardMsg{board: board}
+	}
+}
+
+func (m *Model) rebuildKanbanView() {
+	m.kanbanViewBoard = buildKanbanBoard(m.kanbanBoard, m.kanbanCards)
+	m.clampKanbanRow()
+}
+
+func (m *Model) clampKanbanRow() {
+	colLen := len(m.kanbanViewBoard.Columns[m.selectedCol].Cards)
+	if colLen == 0 {
+		m.selectedRow = 0
+	} else if m.selectedRow >= colLen {
+		m.selectedRow = colLen - 1
+	}
+}
+
+func (m *Model) findPaneByPaneID(paneID string) *tmux.PaneInfo {
+	for _, pc := range m.kanbanCards {
+		if pc.Pane.PaneID == paneID {
+			p := pc.Pane
+			return &p
+		}
+	}
+	return nil
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -162,9 +220,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case kanbanMsg:
 		m.kanbanCards = []kanban.PaneCard(msg)
-		if m.selectedCard >= len(m.kanbanCards) && len(m.kanbanCards) > 0 {
-			m.selectedCard = len(m.kanbanCards) - 1
-		}
+		m.rebuildKanbanView()
+		return m, pollKanbanBoardCmd(m.kanbanCards)
+
+	case kanbanBoardMsg:
+		m.kanbanBoard = msg.board
+		m.rebuildKanbanView()
 		return m, nil
 
 	case removeResultMsg:
@@ -256,8 +317,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			return m, tea.Quit
 		case "left", "h":
-			if m.activeTab == TabKanban && m.selectedCard > 0 {
-				m.selectedCard--
+			if m.activeTab == TabKanban {
+				if m.selectedCol > 0 {
+					m.selectedCol--
+					m.clampKanbanRow()
+				}
 				return m, nil
 			}
 			if m.activeTab == TabGlobal && m.globalGrouped {
@@ -265,8 +329,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "right", "l":
-			if m.activeTab == TabKanban && m.selectedCard < len(m.kanbanCards)-1 {
-				m.selectedCard++
+			if m.activeTab == TabKanban {
+				if m.selectedCol < 2 {
+					m.selectedCol++
+					m.clampKanbanRow()
+				}
 				return m, nil
 			}
 			if m.activeTab == TabGlobal && m.globalGrouped {
@@ -288,6 +355,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "up", "k":
+			if m.activeTab == TabKanban {
+				if m.selectedRow > 0 {
+					m.selectedRow--
+				}
+				return m, nil
+			}
 			if m.activeTab == TabGlobal && m.globalGrouped {
 				if m.globalCursor > 0 {
 					m.globalCursor--
@@ -295,6 +368,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "down", "j":
+			if m.activeTab == TabKanban {
+				colLen := len(m.kanbanViewBoard.Columns[m.selectedCol].Cards)
+				if m.selectedRow < colLen-1 {
+					m.selectedRow++
+				}
+				return m, nil
+			}
 			if m.activeTab == TabGlobal && m.globalGrouped {
 				if m.globalCursor < len(m.globalItems)-1 {
 					m.globalCursor++
@@ -383,11 +463,18 @@ func (m *Model) activeList() *list.Model {
 
 func (m *Model) handleEnter() tea.Cmd {
 	if m.activeTab == TabKanban {
-		if m.selectedCard < len(m.kanbanCards) {
-			pane := m.kanbanCards[m.selectedCard].Pane
-			m.selectedPane = &pane
-			m.quitting = true
-			return tea.Quit
+		col := m.kanbanViewBoard.Columns[m.selectedCol]
+		if m.selectedRow < len(col.Cards) {
+			card := col.Cards[m.selectedRow]
+			// Only jump if the card is in the in-progress column and has a pane ID
+			if m.selectedCol == 1 && card.PaneID != "" {
+				pane := m.findPaneByPaneID(card.PaneID)
+				if pane != nil {
+					m.selectedPane = pane
+					m.quitting = true
+					return tea.Quit
+				}
+			}
 		}
 		return nil
 	}
@@ -523,7 +610,7 @@ func (m *Model) View() string {
 	case TabKanban:
 		h, v := appStyle.GetFrameSize()
 		kanbanHeight := m.height - v - tabBarHeight()
-		content = renderKanban(m.kanbanCards, m.selectedCard, m.width-h, kanbanHeight)
+		content = renderKanbanColumns(m.kanbanViewBoard, m.selectedCol, m.selectedRow, m.width-h, kanbanHeight)
 	case TabGlobal:
 		var footer string
 		if m.renaming {
