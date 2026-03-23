@@ -15,7 +15,7 @@ const (
 	TabWorktrees
 )
 
-var tabNames = []string{"Global", "Kanban", "Worktrees"}
+var tabNames = []string{"Global", "Local", "Worktrees"}
 
 var (
 	activeTabStyle = lipgloss.NewStyle().
