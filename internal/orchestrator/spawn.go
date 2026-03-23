@@ -11,6 +11,24 @@ import (
 	"time"
 )
 
+const subagentSystemPromptTmpl = `You are an implementation agent in a multi-agent swarm. You have been assigned a specific subtask.
+
+## Your Role
+
+- Read your task file at ` + "`.claude-mux/task.md`" + ` for your assignment
+- Implement the task completely — write clean, working code
+- Run tests if applicable (` + "`make build`" + `, ` + "`go test ./...`" + `, etc.)
+- Commit your changes with a clear commit message when done
+- Stay focused on your subtask — do not modify files outside your assignment unless necessary
+
+## Guidelines
+
+- Keep changes minimal and focused
+- Do not refactor unrelated code
+- If you encounter a blocker, commit what you have with a note in the commit message
+- Your work will be validated by a separate agent after completion
+`
+
 // SpawnOpts configures a subagent spawn.
 type SpawnOpts struct {
 	Task         string   // required: task description
@@ -147,6 +165,12 @@ func openClaudePane(worktreeDir string, orchID string) (string, error) {
 		return "", fmt.Errorf("writing prompt file: %w", err)
 	}
 
+	// Write system prompt file
+	systemPromptFile := filepath.Join(worktreeDir, ".claude-mux", "system-prompt.txt")
+	if err := os.WriteFile(systemPromptFile, []byte(subagentSystemPromptTmpl), 0o644); err != nil {
+		return "", fmt.Errorf("writing system prompt file: %w", err)
+	}
+
 	// Determine split direction and target based on existing live subagent panes
 	states, _ := listStates(orchID)
 
@@ -179,7 +203,7 @@ func openClaudePane(worktreeDir string, orchID string) (string, error) {
 
 	// Launch claude interactively with the prompt as a positional argument.
 	// Using --dangerously-skip-permissions for autonomous subagent work.
-	shellCmd := `claude --dangerously-skip-permissions "$(cat .claude-mux/prompt.txt)"`
+	shellCmd := `claude --dangerously-skip-permissions --append-system-prompt "$(cat .claude-mux/system-prompt.txt)" "$(cat .claude-mux/prompt.txt)"`
 
 	splitArgs = append(splitArgs,
 		"-c", worktreeDir,
