@@ -83,3 +83,12 @@ func DisplayName(key string, customNames map[string]string, paths []string) stri
 	}
 	return DeriveGroupName(paths)
 }
+
+// FormatGroupHeader returns a formatted string for a group header row.
+func FormatGroupHeader(name string, count int, collapsed bool) string {
+	arrow := "▾"
+	if collapsed {
+		arrow = "▸"
+	}
+	return fmt.Sprintf("%s %s (%d)", arrow, name, count)
+}
