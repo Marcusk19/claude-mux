@@ -247,7 +247,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m, m.handleEnter()
 		case "p":
-			if m.activeTab == TabSessions {
+			if m.activeTab == TabGlobal {
 				if item, ok := m.list.SelectedItem().(sessionItem); ok {
 					pin.Toggle(item.session.ProjectPath)
 					return m, pollSessions
@@ -265,7 +265,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	var cmd tea.Cmd
-	if m.activeTab == TabSessions {
+	if m.activeTab == TabGlobal {
 		m.list, cmd = m.list.Update(msg)
 	} else {
 		m.worktreeList, cmd = m.worktreeList.Update(msg)
@@ -294,7 +294,7 @@ func (m *Model) handleEnter() tea.Cmd {
 		}
 		return nil
 	}
-	if m.activeTab == TabSessions {
+	if m.activeTab == TabGlobal {
 		if item, ok := m.list.SelectedItem().(sessionItem); ok {
 			s := item.session
 			m.selected = &s
@@ -357,7 +357,7 @@ func (m *Model) View() string {
 		h, v := appStyle.GetFrameSize()
 		kanbanHeight := m.height - v - tabBarHeight()
 		content = renderKanban(m.kanbanCards, m.selectedCard, m.width-h, kanbanHeight)
-	case TabSessions:
+	case TabGlobal:
 		footer := footerStyle.Render(fmt.Sprintf(" %d/%d sessions ", m.list.Index()+1, m.totalCount))
 		content = m.list.View() + "\n" + footer
 	default: // TabWorktrees

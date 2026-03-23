@@ -23,4 +23,7 @@ var (
 	footerStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Padding(0, 1)
 	confirmStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true).Padding(0, 1)
 	statusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("40")).Padding(0, 1)
+
+	groupHeaderStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Faint(true)
+	groupHeaderSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Bold(true)
 )
