@@ -124,7 +124,18 @@ func runCleanup() {
 }
 
 func runTUI() {
-	m := ui.NewModel()
+	kanbanSession := os.Getenv("CLAUDE_MUX_SESSION")
+	kanbanWindow := os.Getenv("CLAUDE_MUX_WINDOW")
+
+	// Fallback: query tmux directly
+	if kanbanSession == "" || kanbanWindow == "" {
+		if s, w, err := tmux.CurrentWindow(); err == nil {
+			kanbanSession = s
+			kanbanWindow = w
+		}
+	}
+
+	m := ui.NewModel(kanbanSession, kanbanWindow)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	finalModel, err := p.Run()
