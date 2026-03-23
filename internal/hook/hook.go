@@ -88,6 +88,7 @@ func Handle(event string) error {
 			}
 		}
 		playSound()
+		notifyOrchestrator(input.CWD)
 
 	case "Notification":
 		switch input.NotificationType {
@@ -244,6 +245,98 @@ func playSound() {
 	}
 	cmd := exec.Command("afplay", sound)
 	_ = cmd.Start() // fire and forget
+}
+
+// notifyOrchestrator checks if this is a subagent and notifies the orchestrator on completion.
+func notifyOrchestrator(cwd string) {
+	orchPaneFile := filepath.Join(cwd, ".claude-mux", "orchestrator-pane")
+	orchPaneBytes, err := os.ReadFile(orchPaneFile)
+	if err != nil {
+		return
+	}
+	orchPaneID := strings.TrimSpace(string(orchPaneBytes))
+
+	boardPathBytes, err := os.ReadFile(filepath.Join(cwd, ".claude-mux", "board-path"))
+	if err != nil {
+		return
+	}
+	boardPath := strings.TrimSpace(string(boardPathBytes))
+
+	// Load board JSON
+	boardData, err := os.ReadFile(boardPath)
+	if err != nil {
+		return
+	}
+
+	var board boardJSON
+	if err := json.Unmarshal(boardData, &board); err != nil {
+		return
+	}
+
+	paneID := os.Getenv("TMUX_PANE")
+	if paneID == "" {
+		return
+	}
+
+	// Find card by pane ID and move to done
+	var found *boardCard
+	var foundCol string
+	for col, cards := range board.Columns {
+		for i := range cards {
+			if cards[i].PaneID == paneID {
+				found = &cards[i]
+				foundCol = col
+				break
+			}
+		}
+	}
+
+	if found == nil {
+		return
+	}
+
+	// Remove from current column
+	var remaining []boardCard
+	for _, c := range board.Columns[foundCol] {
+		if c.PaneID != paneID {
+			remaining = append(remaining, c)
+		}
+	}
+	board.Columns[foundCol] = remaining
+
+	// Add to done
+	board.Columns["done"] = append(board.Columns["done"], *found)
+
+	// Save board
+	data, err := json.MarshalIndent(board, "", "  ")
+	if err != nil {
+		return
+	}
+	tmpPath := boardPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		return
+	}
+	os.Rename(tmpPath, boardPath)
+
+	// Send notification to orchestrator pane
+	msg := fmt.Sprintf("Agent %s completed on branch %s", found.TaskID, found.Branch)
+	exec.Command("tmux", "send-keys", "-t", orchPaneID, msg, "Enter").Run()
+}
+
+// boardJSON is a minimal representation of the kanban board for hook use (avoids import cycle).
+type boardJSON struct {
+	SwarmID            string                  `json:"swarm_id"`
+	OrchestratorPaneID string                  `json:"orchestrator_pane_id"`
+	Columns            map[string][]boardCard  `json:"columns"`
+}
+
+type boardCard struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	TaskID      string `json:"task_id,omitempty"`
+	PaneID      string `json:"pane_id,omitempty"`
+	Branch      string `json:"branch,omitempty"`
 }
 
 func truncate(s string, max int) string {

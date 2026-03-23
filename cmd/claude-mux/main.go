@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mkok/claude-mux/internal/hook"
+	"github.com/mkok/claude-mux/internal/kanban"
 	"github.com/mkok/claude-mux/internal/orchestrator"
 	"github.com/mkok/claude-mux/internal/tmux"
 	"github.com/mkok/claude-mux/internal/ui"
@@ -33,6 +34,9 @@ func main() {
 			return
 		case "swarm":
 			runSwarm()
+			return
+		case "board":
+			runBoard()
 			return
 		case "plan":
 			runPlan()
@@ -61,6 +65,7 @@ Commands:
               --file string       comma-separated file paths to include
               --worktree string   reuse an existing worktree path
               --branch string     branch name for the existing worktree
+              --card-id string    kanban card ID to move to in-progress
 
   status      Show status of all subagents
 
@@ -79,6 +84,9 @@ Commands:
               --file string       comma-separated file paths to include
               --auto-merge        auto-merge completed branches
               --max-agents int    max concurrent subagents (default 3)
+
+  board       Update kanban board cards
+              Usage: claude-mux board update --card-id <id> --column <col>
 
   plan        Interactive PRD planning that can launch a swarm
               --task string       initial task idea (optional)
@@ -110,6 +118,7 @@ func runSpawn() {
 	filesFlag := fs.String("file", "", "comma-separated file paths to include")
 	worktree := fs.String("worktree", "", "reuse an existing worktree path")
 	branch := fs.String("branch", "", "branch name for the existing worktree")
+	cardID := fs.String("card-id", "", "kanban card ID to move to in-progress")
 	fs.Parse(os.Args[2:])
 
 	if *task == "" {
@@ -128,6 +137,7 @@ func runSpawn() {
 		Files:        files,
 		WorktreePath: *worktree,
 		BranchName:   *branch,
+		CardID:       *cardID,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "spawn error: %v\n", err)
@@ -237,6 +247,47 @@ func runPlan() {
 		fmt.Fprintf(os.Stderr, "plan error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func runBoard() {
+	if len(os.Args) < 3 || os.Args[2] != "update" {
+		fmt.Fprintf(os.Stderr, "usage: claude-mux board update --card-id <id> --column <col>\n")
+		os.Exit(1)
+	}
+
+	fs := flag.NewFlagSet("board-update", flag.ExitOnError)
+	cardID := fs.String("card-id", "", "card ID to move")
+	column := fs.String("column", "", "target column (backlog, in-progress, done)")
+	fs.Parse(os.Args[3:])
+
+	if *cardID == "" || *column == "" {
+		fmt.Fprintf(os.Stderr, "error: --card-id and --column are required\n")
+		os.Exit(1)
+	}
+
+	repoRoot, err := orchestrator.RepoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	board, err := kanban.LoadBoard(repoRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := kanban.MoveCard(board, *cardID, *column); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := kanban.SaveBoard(board); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Card %s moved to %s\n", *cardID, *column)
 }
 
 func runTUI() {
