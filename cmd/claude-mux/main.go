@@ -34,6 +34,9 @@ func main() {
 		case "swarm":
 			runSwarm()
 			return
+		case "plan":
+			runPlan()
+			return
 		}
 	}
 
@@ -161,6 +164,32 @@ func runSwarm() {
 		os.Exit(1)
 	}
 	fmt.Println(swarmID)
+}
+
+func runPlan() {
+	fs := flag.NewFlagSet("plan", flag.ExitOnError)
+	task := fs.String("task", "", "initial task idea (optional)")
+	context := fs.String("context", "", "additional context")
+	filesFlag := fs.String("file", "", "comma-separated file paths to include")
+	autoMerge := fs.Bool("auto-merge", false, "auto-merge completed branches when swarm executes")
+	maxAgents := fs.Int("max-agents", 3, "max concurrent subagents for swarm execution")
+	fs.Parse(os.Args[2:])
+
+	var files []string
+	if *filesFlag != "" {
+		files = strings.Split(*filesFlag, ",")
+	}
+
+	if err := orchestrator.Plan(orchestrator.PlanOpts{
+		Task:      *task,
+		Context:   *context,
+		Files:     files,
+		AutoMerge: *autoMerge,
+		MaxAgents: *maxAgents,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "plan error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runTUI() {
