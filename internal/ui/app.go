@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mkok/claude-mux/internal/kanban"
 	"github.com/mkok/claude-mux/internal/pin"
 	"github.com/mkok/claude-mux/internal/session"
 	"github.com/mkok/claude-mux/internal/tmux"
@@ -47,6 +48,10 @@ type Model struct {
 	forceRemove   bool   // true when confirming a force removal after normal remove failed
 	statusMessage string
 	sessions      []session.ClaudeSession // keep for cross-referencing
+	kanbanCards   []kanban.PaneCard
+	kanbanSession string // tmux session name for current window
+	kanbanWindow  string // tmux window index for current window
+	selectedCard  int    // selected card index in kanban view
 }
 
 // Selected returns the session the user chose, or nil if they quit.
@@ -60,7 +65,7 @@ func (m *Model) SelectedPane() *tmux.PaneInfo {
 }
 
 // NewModel creates a new TUI model.
-func NewModel() *Model {
+func NewModel(kanbanSession, kanbanWindow string) *Model {
 	// Session list delegate
 	delegate := list.NewDefaultDelegate()
 	delegate.SetHeight(4)
@@ -99,11 +104,15 @@ func NewModel() *Model {
 	wl.DisableQuitKeybindings()
 	wl.SetStatusBarItemName("worktree", "worktrees")
 
-	return &Model{list: l, worktreeList: wl}
+	return &Model{list: l, worktreeList: wl, kanbanSession: kanbanSession, kanbanWindow: kanbanWindow}
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(pollSessions, pollWorktrees, tickCmd())
+	return tea.Batch(pollSessions, pollWorktrees, m.pollKanbanCmd(), tickCmd())
+}
+
+func (m *Model) pollKanbanCmd() tea.Cmd {
+	return pollKanbanCmd(m.kanbanSession, m.kanbanWindow)
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -140,6 +149,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.worktreeList.SetItems(items)
 		return m, cmd
 
+	case kanbanMsg:
+		m.kanbanCards = []kanban.PaneCard(msg)
+		if m.selectedCard >= len(m.kanbanCards) && len(m.kanbanCards) > 0 {
+			m.selectedCard = len(m.kanbanCards) - 1
+		}
+		return m, nil
+
 	case removeResultMsg:
 		if msg.err != nil {
 			if msg.force {
@@ -169,7 +185,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, pollWorktrees
 
 	case tickMsg:
-		return m, tea.Batch(pollSessions, tickCmd())
+		return m, tea.Batch(pollSessions, m.pollKanbanCmd(), tickCmd())
 
 	case tea.KeyMsg:
 		// Handle confirmation prompt first
@@ -204,13 +220,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "esc":
 			m.quitting = true
 			return m, tea.Quit
+		case "left", "h":
+			if m.activeTab == TabKanban && m.selectedCard > 0 {
+				m.selectedCard--
+				return m, nil
+			}
+		case "right", "l":
+			if m.activeTab == TabKanban && m.selectedCard < len(m.kanbanCards)-1 {
+				m.selectedCard++
+				return m, nil
+			}
 		case "tab":
 			m.statusMessage = ""
-			if m.activeTab == TabSessions {
-				m.activeTab = TabWorktrees
+			m.activeTab = Tab((int(m.activeTab) + 1) % len(tabNames))
+			if m.activeTab == TabWorktrees {
 				return m, pollWorktrees
 			}
-			m.activeTab = TabSessions
 			return m, nil
 		case "enter":
 			return m, m.handleEnter()
@@ -228,7 +253,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Delegate to active list
+	// Delegate to active list (skip for kanban which doesn't use a list)
+	if m.activeTab == TabKanban {
+		return m, nil
+	}
 	var cmd tea.Cmd
 	if m.activeTab == TabSessions {
 		m.list, cmd = m.list.Update(msg)
@@ -239,13 +267,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) activeList() *list.Model {
-	if m.activeTab == TabWorktrees {
+	switch m.activeTab {
+	case TabWorktrees:
 		return &m.worktreeList
+	case TabKanban:
+		return &m.list // kanban doesn't use a list, but return something to avoid nil
+	default:
+		return &m.list
 	}
-	return &m.list
 }
 
 func (m *Model) handleEnter() tea.Cmd {
+	if m.activeTab == TabKanban {
+		if m.selectedCard < len(m.kanbanCards) {
+			pane := m.kanbanCards[m.selectedCard].Pane
+			m.selectedPane = &pane
+			m.quitting = true
+			return tea.Quit
+		}
+		return nil
+	}
 	if m.activeTab == TabSessions {
 		if item, ok := m.list.SelectedItem().(sessionItem); ok {
 			s := item.session
@@ -304,10 +345,15 @@ func (m *Model) View() string {
 	tabs := renderTabBar(m.activeTab, m.width-4) // account for appStyle padding
 
 	var content string
-	if m.activeTab == TabSessions {
+	switch m.activeTab {
+	case TabKanban:
+		h, v := appStyle.GetFrameSize()
+		kanbanHeight := m.height - v - tabBarHeight()
+		content = renderKanban(m.kanbanCards, m.selectedCard, m.width-h, kanbanHeight)
+	case TabSessions:
 		footer := footerStyle.Render(fmt.Sprintf(" %d/%d sessions ", m.list.Index()+1, m.totalCount))
 		content = m.list.View() + "\n" + footer
-	} else {
+	default: // TabWorktrees
 		var footer string
 		if m.confirmRemove != nil {
 			var prompt string

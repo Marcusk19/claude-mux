@@ -23,7 +23,7 @@ tmux_version=$(tmux -V | sed -En 's/^tmux ([0-9]+\.[0-9]+).*/\1/p')
 has_popup=$(echo "$tmux_version >= 3.2" | bc 2>/dev/null || echo 0)
 
 if [ "$has_popup" = "1" ]; then
-    tmux bind-key "$key" display-popup -E -w "$popup_width" -h "$popup_height" "'$BINARY'"
+    tmux bind-key "$key" display-popup -E -w "$popup_width" -h "$popup_height" "CLAUDE_MUX_SESSION='#{session_name}' CLAUDE_MUX_WINDOW='#{window_index}' '$BINARY'"
 else
     tmux bind-key "$key" new-window "'$BINARY'"
 fi
