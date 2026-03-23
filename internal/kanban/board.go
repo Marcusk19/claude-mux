@@ -138,6 +138,17 @@ func MoveCard(board *Board, cardID, toColumn string) error {
 	return fmt.Errorf("card not found: %q", cardID)
 }
 
+func FindCardByID(board *Board, cardID string) (*Card, string) {
+	for col, cards := range board.Columns {
+		for i := range cards {
+			if cards[i].ID == cardID {
+				return &cards[i], col
+			}
+		}
+	}
+	return nil, ""
+}
+
 func FindCardByPaneID(board *Board, paneID string) (*Card, string) {
 	for col, cards := range board.Columns {
 		for i := range cards {

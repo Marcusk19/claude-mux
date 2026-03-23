@@ -1,12 +1,16 @@
 package orchestrator
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
+
+	"github.com/mkok/claude-mux/internal/kanban"
 )
 
 // SwarmOpts configures a swarm launch.
@@ -141,6 +145,31 @@ func Swarm(opts SwarmOpts) (string, error) {
 	}
 	paneID := strings.TrimSpace(string(out))
 
+	// Create kanban board
+	board := kanban.NewBoard(swarmID, paneID)
+
+	// If PRD files were provided, parse subtasks from content
+	if len(opts.Files) > 0 {
+		for _, f := range opts.Files {
+			data, err := os.ReadFile(f)
+			if err != nil {
+				continue
+			}
+			cards := parseSubtasks(string(data))
+			board.Columns["backlog"] = append(board.Columns["backlog"], cards...)
+		}
+	}
+
+	// Save board
+	boardPath := filepath.Join(swarmDir, "kanban.json")
+	board.Path = boardPath
+	if err := kanban.SaveBoard(board); err != nil {
+		return "", fmt.Errorf("saving board: %w", err)
+	}
+
+	// Write board path reference
+	os.WriteFile(filepath.Join(swarmDir, "board-path"), []byte(boardPath), 0o644)
+
 	// Write orchestrator-id so the coordinator resolves to the same orchestrator
 	orchIDFile := filepath.Join(repoRoot, ".claude-mux", "orchestrator-id")
 	os.WriteFile(orchIDFile, []byte(orchID+"\n"), 0o644)
@@ -160,14 +189,13 @@ const coordinatorSystemPromptTmpl = `You are a swarm coordinator. Your job is to
 ## Spawning and monitoring
 
 - **Spawn implementers** for each subtask using:
-  ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>"` + "`" + `
+  ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>" --card-id <card-id>` + "`" + `
 
   Spawn at most {{.MaxAgents}} agents at a time. If you have more subtasks than that, wait for some to complete before spawning more.
 
-- **Monitor progress** by running:
-  ` + "`" + `claude-mux status` + "`" + `
-
-  Poll every 30 seconds until agents complete. An agent is "completed" when its tmux pane is gone and it has commits on its branch. An agent is "failed" if its pane is gone with no new commits.
+- **Wait for notifications**: Agents will notify you when they complete. You will receive a message like:
+  ` + "`" + `Agent <task-id> completed on branch <branch>` + "`" + `
+  Wait for these messages instead of polling. You can run ` + "`" + `claude-mux status` + "`" + ` as a fallback if needed.
 
 - **Validate completed work**: When an implementer completes, spawn a validator in the same worktree:
   ` + "`" + `claude-mux spawn --task "validate: review the changes, run tests, and verify correctness" --worktree <worktree_path> --branch <branch_name>` + "`" + `
@@ -217,14 +245,13 @@ const coordinatorPlanDrivenSystemPromptTmpl = `You are a swarm coordinator. A PR
 ## Spawning and monitoring
 
 - **Spawn implementers** for each subtask using:
-  ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>"` + "`" + `
+  ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>" --card-id <card-id>` + "`" + `
 
   Spawn at most {{.MaxAgents}} agents at a time. If you have more subtasks than that, wait for some to complete before spawning more.
 
-- **Monitor progress** by running:
-  ` + "`" + `claude-mux status` + "`" + `
-
-  Poll every 30 seconds until agents complete. An agent is "completed" when its tmux pane is gone and it has commits on its branch. An agent is "failed" if its pane is gone with no new commits.
+- **Wait for notifications**: Agents will notify you when they complete. You will receive a message like:
+  ` + "`" + `Agent <task-id> completed on branch <branch>` + "`" + `
+  Wait for these messages instead of polling. You can run ` + "`" + `claude-mux status` + "`" + ` as a fallback if needed.
 
 - **Validate completed work**: When an implementer completes, spawn a validator in the same worktree:
   ` + "`" + `claude-mux spawn --task "validate: review the changes, run tests, and verify correctness" --worktree <worktree_path> --branch <branch_name>` + "`" + `
@@ -262,3 +289,59 @@ const coordinatorPlanDrivenInitialMessageTmpl = `## Task
 
 A PRD has been approved. Read it and execute — spawn agents for each subtask immediately.
 `
+
+// parseSubtasks extracts numbered subtasks from a PRD document.
+// It looks for a "### Subtasks" or "## Subtasks" header, then collects numbered items.
+func parseSubtasks(content string) []kanban.Card {
+	var cards []kanban.Card
+
+	subtasksHeader := regexp.MustCompile(`(?i)^#{2,3}\s+Subtasks\s*$`)
+	numberedItem := regexp.MustCompile(`^(\d+)\.\s+(.+)`)
+	sectionHeader := regexp.MustCompile(`^#{1,6}\s+`)
+
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	inSubtasks := false
+	var currentID, currentTitle string
+	var descLines []string
+
+	flush := func() {
+		if currentID != "" {
+			cards = append(cards, kanban.Card{
+				ID:          currentID,
+				Title:       currentTitle,
+				Description: strings.TrimSpace(strings.Join(descLines, "\n")),
+			})
+		}
+		currentID = ""
+		currentTitle = ""
+		descLines = nil
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if !inSubtasks {
+			if subtasksHeader.MatchString(line) {
+				inSubtasks = true
+			}
+			continue
+		}
+
+		// Stop at next section header (that isn't "Subtasks")
+		if sectionHeader.MatchString(line) && !subtasksHeader.MatchString(line) {
+			flush()
+			break
+		}
+
+		if m := numberedItem.FindStringSubmatch(line); m != nil {
+			flush()
+			currentID = m[1]
+			currentTitle = m[2]
+		} else if currentID != "" {
+			descLines = append(descLines, line)
+		}
+	}
+	flush()
+
+	return cards
+}
