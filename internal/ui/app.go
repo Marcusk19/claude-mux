@@ -260,9 +260,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedCard--
 				return m, nil
 			}
+			if m.activeTab == TabGlobal && m.globalGrouped {
+				m.globalCursorPrevGroup()
+				return m, nil
+			}
 		case "right", "l":
 			if m.activeTab == TabKanban && m.selectedCard < len(m.kanbanCards)-1 {
 				m.selectedCard++
+				return m, nil
+			}
+			if m.activeTab == TabGlobal && m.globalGrouped {
+				m.globalCursorNextGroup()
 				return m, nil
 			}
 		case "tab":
@@ -430,6 +438,26 @@ func (m *Model) rebuildGlobalState() {
 	}
 	if m.globalCursor < 0 {
 		m.globalCursor = 0
+	}
+}
+
+// globalCursorPrevGroup moves the cursor to the previous group header.
+func (m *Model) globalCursorPrevGroup() {
+	for i := m.globalCursor - 1; i >= 0; i-- {
+		if m.globalItems[i].isHeader {
+			m.globalCursor = i
+			return
+		}
+	}
+}
+
+// globalCursorNextGroup moves the cursor to the next group header.
+func (m *Model) globalCursorNextGroup() {
+	for i := m.globalCursor + 1; i < len(m.globalItems); i++ {
+		if m.globalItems[i].isHeader {
+			m.globalCursor = i
+			return
+		}
 	}
 }
 
