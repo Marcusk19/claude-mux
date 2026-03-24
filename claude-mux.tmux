@@ -40,3 +40,9 @@ WORKTREE_SCRIPT="$CURRENT_DIR/scripts/worktree-split.sh"
 # -v = horizontal split (panes stacked), -h = vertical split (panes side by side)
 tmux bind-key "$worktree_h_key" run-shell "'$WORKTREE_SCRIPT' -v '#{pane_current_path}'"
 tmux bind-key "$worktree_v_key" run-shell "'$WORKTREE_SCRIPT' -h '#{pane_current_path}'"
+
+# Command Center keybinding
+cc_key=$(tmux show-option -gqv @claude-mux-cc-key)
+cc_key=${cc_key:-X}
+
+tmux bind-key "$cc_key" run-shell "'$BINARY' cc open"
