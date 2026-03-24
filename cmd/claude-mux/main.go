@@ -4,9 +4,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mkok/claude-mux/internal/cc"
 	"github.com/mkok/claude-mux/internal/hook"
 	"github.com/mkok/claude-mux/internal/kanban"
 	"github.com/mkok/claude-mux/internal/orchestrator"
@@ -37,6 +40,9 @@ func main() {
 			return
 		case "board":
 			runBoard()
+			return
+		case "cc":
+			runCC()
 			return
 		case "plan":
 			runPlan()
@@ -87,6 +93,9 @@ Commands:
 
   board       Update kanban board cards
               Usage: claude-mux board update --card-id <id> --column <col>
+
+  cc          Command Center management
+              Usage: claude-mux cc <start|stop|status|open>
 
   plan        Interactive PRD planning that can launch a swarm
               --task string       initial task idea (optional)
@@ -290,6 +299,78 @@ func runBoard() {
 	fmt.Printf("Card %s moved to %s\n", *cardID, *column)
 }
 
+func runCC() {
+	if len(os.Args) < 3 {
+		fmt.Fprintf(os.Stderr, "usage: claude-mux cc <start|stop|status|open>\n")
+		os.Exit(1)
+	}
+
+	switch os.Args[2] {
+	case "start":
+		repoRoot, err := orchestrator.RepoRoot()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		state, err := cc.Start(repoRoot)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(state.PaneID)
+	case "stop":
+		if err := cc.Stop(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Command Center stopped.")
+	case "status":
+		state, err := cc.Status()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		if state == nil {
+			fmt.Println("Command Center is not running.")
+			return
+		}
+		fmt.Printf("Pane:    %s\n", state.PaneID)
+		fmt.Printf("Uptime:  %s\n", time.Since(state.CreatedAt).Truncate(time.Second))
+		fmt.Printf("Repo:    %s\n", state.RepoRoot)
+	case "open":
+		repoRoot, err := orchestrator.RepoRoot()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		width := tmuxOption("@claude-mux-width", "80%")
+		height := tmuxOption("@claude-mux-height", "70%")
+		if _, err := cc.EnsureRunning(repoRoot); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		if err := cc.Open(width, height); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "unknown cc subcommand: %s\n", os.Args[2])
+		os.Exit(1)
+	}
+}
+
+func tmuxOption(name, defaultVal string) string {
+	out, err := exec.Command("tmux", "show-option", "-gqv", name).Output()
+	if err != nil {
+		return defaultVal
+	}
+	val := strings.TrimSpace(string(out))
+	if val == "" {
+		return defaultVal
+	}
+	return val
+}
+
 func runTUI() {
 	kanbanSession := os.Getenv("CLAUDE_MUX_SESSION")
 	kanbanWindow := os.Getenv("CLAUDE_MUX_WINDOW")
@@ -312,6 +393,21 @@ func runTUI() {
 	}
 
 	if model, ok := finalModel.(*ui.Model); ok {
+		if model.OpenCC() {
+			repoRoot, _ := orchestrator.RepoRoot()
+			width := tmuxOption("@claude-mux-width", "80%")
+			height := tmuxOption("@claude-mux-height", "70%")
+			if _, err := cc.EnsureRunning(repoRoot); err != nil {
+				fmt.Fprintf(os.Stderr, "CC error: %v\n", err)
+				os.Exit(1)
+			}
+			if err := cc.Open(width, height); err != nil {
+				fmt.Fprintf(os.Stderr, "CC error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
 		var pane *tmux.PaneInfo
 		if selected := model.Selected(); selected != nil {
 			pane = &selected.Pane

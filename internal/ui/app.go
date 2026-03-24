@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mkok/claude-mux/internal/cc"
 	"github.com/mkok/claude-mux/internal/kanban"
 	"github.com/mkok/claude-mux/internal/pin"
 	"github.com/mkok/claude-mux/internal/session"
@@ -31,6 +32,9 @@ type removeResultMsg struct {
 	err   error
 	force bool // whether this was already a --force attempt
 }
+
+// ccStatusMsg carries the CC state to the TUI.
+type ccStatusMsg struct{ state *cc.State }
 
 // tickMsg triggers a poll for sessions.
 type tickMsg time.Time
@@ -67,6 +71,8 @@ type Model struct {
 	globalCursor    int
 	globalScroll    int
 	globalItems     []selectableItem // cached selectable items for grouped mode
+	ccState         *cc.State
+	openCC          bool
 }
 
 // Selected returns the session the user chose, or nil if they quit.
@@ -77,6 +83,11 @@ func (m *Model) Selected() *session.ClaudeSession {
 // SelectedPane returns a pane to jump to (from worktree tab), or nil.
 func (m *Model) SelectedPane() *tmux.PaneInfo {
 	return m.selectedPane
+}
+
+// OpenCC returns true if the user chose to open the Command Center.
+func (m *Model) OpenCC() bool {
+	return m.openCC
 }
 
 // NewModel creates a new TUI model.
@@ -131,7 +142,7 @@ func NewModel(kanbanSession, kanbanWindow string) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(pollSessions, pollWorktrees, m.pollKanbanCmd(), tickCmd())
+	return tea.Batch(pollSessions, pollWorktrees, m.pollKanbanCmd(), pollCCStatus, tickCmd())
 }
 
 func (m *Model) pollKanbanCmd() tea.Cmd {
@@ -223,6 +234,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuildKanbanView()
 		return m, pollKanbanBoardCmd(m.kanbanCards)
 
+	case ccStatusMsg:
+		m.ccState = msg.state
+		return m, nil
+
 	case kanbanBoardMsg:
 		m.kanbanBoard = msg.board
 		m.rebuildKanbanView()
@@ -257,7 +272,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, pollWorktrees
 
 	case tickMsg:
-		return m, tea.Batch(pollSessions, m.pollKanbanCmd(), tickCmd())
+		return m, tea.Batch(pollSessions, m.pollKanbanCmd(), pollCCStatus, tickCmd())
 
 	case tea.KeyMsg:
 		// Handle confirmation prompt first
@@ -382,6 +397,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "enter":
+			if m.activeTab == TabCC {
+				m.openCC = true
+				m.quitting = true
+				return m, tea.Quit
+			}
 			if m.activeTab == TabGlobal && m.globalGrouped {
 				return m, m.handleGroupedEnter()
 			}
@@ -434,7 +454,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Delegate to active list (skip for kanban and grouped global which use custom rendering)
+	// Delegate to active list (skip for CC, kanban and grouped global which use custom rendering)
+	if m.activeTab == TabCC {
+		return m, nil
+	}
 	if m.activeTab == TabKanban {
 		return m, nil
 	}
@@ -607,6 +630,10 @@ func (m *Model) View() string {
 
 	var content string
 	switch m.activeTab {
+	case TabCC:
+		h, v := appStyle.GetFrameSize()
+		ccHeight := m.height - v - tabBarHeight()
+		content = renderCCView(m.ccState, m.width-h, ccHeight)
 	case TabKanban:
 		h, v := appStyle.GetFrameSize()
 		kanbanHeight := m.height - v - tabBarHeight()
@@ -713,6 +740,11 @@ func removeWorktreeCmd(repoRoot, path string, force bool) tea.Cmd {
 		err := worktree.Remove(repoRoot, path, force)
 		return removeResultMsg{path: path, err: err, force: force}
 	}
+}
+
+func pollCCStatus() tea.Msg {
+	state, _ := cc.Status()
+	return ccStatusMsg{state: state}
 }
 
 func tickCmd() tea.Cmd {
