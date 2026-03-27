@@ -36,6 +36,9 @@ type removeResultMsg struct {
 // ccStatusMsg carries the CC state to the TUI.
 type ccStatusMsg struct{ state *cc.State }
 
+// ccExecDoneMsg is sent when the CC tea.Exec process finishes.
+type ccExecDoneMsg struct{ err error }
+
 // tickMsg triggers a poll for sessions.
 type tickMsg time.Time
 
@@ -72,7 +75,6 @@ type Model struct {
 	globalScroll    int
 	globalItems     []selectableItem // cached selectable items for grouped mode
 	ccState         *cc.State
-	openCC          bool
 }
 
 // Selected returns the session the user chose, or nil if they quit.
@@ -83,11 +85,6 @@ func (m *Model) Selected() *session.ClaudeSession {
 // SelectedPane returns a pane to jump to (from worktree tab), or nil.
 func (m *Model) SelectedPane() *tmux.PaneInfo {
 	return m.selectedPane
-}
-
-// OpenCC returns true if the user chose to open the Command Center.
-func (m *Model) OpenCC() bool {
-	return m.openCC
 }
 
 // NewModel creates a new TUI model.
@@ -237,6 +234,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ccStatusMsg:
 		m.ccState = msg.state
 		return m, nil
+
+	case ccExecDoneMsg:
+		return m, pollCCStatus
 
 	case kanbanBoardMsg:
 		m.kanbanBoard = msg.board
@@ -398,9 +398,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			if m.activeTab == TabCC {
-				m.openCC = true
-				m.quitting = true
-				return m, tea.Quit
+				return m, m.openCCCmd()
 			}
 			if m.activeTab == TabGlobal && m.globalGrouped {
 				return m, m.handleGroupedEnter()
@@ -740,6 +738,34 @@ func removeWorktreeCmd(repoRoot, path string, force bool) tea.Cmd {
 		err := worktree.Remove(repoRoot, path, force)
 		return removeResultMsg{path: path, err: err, force: force}
 	}
+}
+
+func (m *Model) openCCCmd() tea.Cmd {
+	// Detect repo root for EnsureRunning
+	repoRoot := ""
+	if m.ccState != nil {
+		repoRoot = m.ccState.RepoRoot
+	}
+	if repoRoot == "" {
+		out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+		if err == nil {
+			repoRoot = strings.TrimSpace(string(out))
+		}
+	}
+	if repoRoot == "" {
+		return nil
+	}
+
+	// Ensure the CC session is running
+	if _, err := cc.EnsureRunning(repoRoot); err != nil {
+		return nil
+	}
+
+	// Hand the terminal to the CC's tmux session via tea.ExecProcess
+	c := exec.Command("tmux", "-L", "claude-mux-cc", "attach", "-t", "cc")
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return ccExecDoneMsg{err: err}
+	})
 }
 
 func pollCCStatus() tea.Msg {

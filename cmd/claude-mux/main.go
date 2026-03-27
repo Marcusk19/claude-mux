@@ -393,21 +393,6 @@ func runTUI() {
 	}
 
 	if model, ok := finalModel.(*ui.Model); ok {
-		if model.OpenCC() {
-			repoRoot, _ := orchestrator.RepoRoot()
-			width := tmuxOption("@claude-mux-width", "80%")
-			height := tmuxOption("@claude-mux-height", "70%")
-			if _, err := cc.EnsureRunning(repoRoot); err != nil {
-				fmt.Fprintf(os.Stderr, "CC error: %v\n", err)
-				os.Exit(1)
-			}
-			if err := cc.Open(width, height); err != nil {
-				fmt.Fprintf(os.Stderr, "CC error: %v\n", err)
-				os.Exit(1)
-			}
-			return
-		}
-
 		var pane *tmux.PaneInfo
 		if selected := model.Selected(); selected != nil {
 			pane = &selected.Pane

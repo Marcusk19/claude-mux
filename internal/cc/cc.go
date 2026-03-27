@@ -10,13 +10,16 @@ import (
 	"time"
 )
 
+const (
+	socketName  = "claude-mux-cc"
+	sessionName = "cc"
+)
+
 // State represents the running state of the Command Center.
 type State struct {
-	PaneID      string    `json:"pane_id"`
-	WindowID    string    `json:"window_id"`
-	TmuxSession string    `json:"tmux_session"`
-	RepoRoot    string    `json:"repo_root"`
-	CreatedAt   time.Time `json:"created_at"`
+	PaneID    string    `json:"pane_id"`
+	RepoRoot  string    `json:"repo_root"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // stateFilePath returns the path to the CC state file.
@@ -25,51 +28,61 @@ func stateFilePath() string {
 	return filepath.Join(home, ".cache", "claude-mux", "command-center.json")
 }
 
-// Start creates a hidden tmux window running Claude Code with the CC system prompt.
-// If already running, returns the existing state.
+// Start creates a detached tmux session on a separate socket running Claude Code
+// with the CC system prompt. If already running, returns the existing state.
 func Start(repoRoot string) (*State, error) {
 	existing, _ := Status()
 	if existing != nil {
 		return existing, nil
 	}
 
-	// Get current tmux session name
-	sessionOut, err := exec.Command("tmux", "display-message", "-p", "#{session_name}").Output()
+	// Create a detached session on the separate socket
+	err := exec.Command("tmux", "-L", socketName, "new-session", "-d",
+		"-s", sessionName, "-c", repoRoot).Run()
 	if err != nil {
-		return nil, fmt.Errorf("get tmux session: %w", err)
-	}
-	sessionName := strings.TrimSpace(string(sessionOut))
-
-	// Create a new hidden window
-	out, err := exec.Command("tmux", "new-window", "-d", "-n", "command-center",
-		"-c", repoRoot, "-P", "-F", "#{pane_id} #{window_id}").Output()
-	if err != nil {
-		return nil, fmt.Errorf("create window: %w", err)
+		return nil, fmt.Errorf("create session on socket %s: %w", socketName, err)
 	}
 
-	parts := strings.Fields(strings.TrimSpace(string(out)))
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("unexpected new-window output: %s", string(out))
+	// Write system prompt to a file so it doesn't get echoed in the terminal
+	home, _ := os.UserHomeDir()
+	promptDir := filepath.Join(home, ".cache", "claude-mux")
+	os.MkdirAll(promptDir, 0o755)
+	promptFile := filepath.Join(promptDir, "cc-system-prompt.txt")
+	if err := os.WriteFile(promptFile, []byte(SystemPrompt()), 0o644); err != nil {
+		_ = exec.Command("tmux", "-L", socketName, "kill-session", "-t", sessionName).Run()
+		return nil, fmt.Errorf("write system prompt: %w", err)
 	}
-	paneID := parts[0]
-	windowID := parts[1]
 
-	// Send the claude command to the new pane
-	prompt := strings.ReplaceAll(SystemPrompt(), "'", "'\\''")
-	cmd := fmt.Sprintf("claude --dangerously-skip-permissions --append-system-prompt '%s'", prompt)
-	err = exec.Command("tmux", "send-keys", "-t", paneID, cmd, "Enter").Run()
+	// Override TMUX env var in the CC pane to point to the main tmux server,
+	// so that tmux commands (and claude-mux status/spawn/etc.) target the
+	// correct server instead of the CC's separate socket.
+	mainTmux := os.Getenv("TMUX")
+	if mainTmux != "" {
+		exportCmd := fmt.Sprintf("export TMUX='%s'", mainTmux)
+		exec.Command("tmux", "-L", socketName, "send-keys", "-t", sessionName, exportCmd, "Enter").Run()
+	}
+
+	// Send the claude command referencing the prompt file
+	cmd := fmt.Sprintf(`claude --dangerously-skip-permissions --append-system-prompt "$(cat %s)"`, promptFile)
+	err = exec.Command("tmux", "-L", socketName, "send-keys", "-t", sessionName, cmd, "Enter").Run()
 	if err != nil {
-		// Clean up the window we created
-		_ = exec.Command("tmux", "kill-pane", "-t", paneID).Run()
+		_ = exec.Command("tmux", "-L", socketName, "kill-session", "-t", sessionName).Run()
 		return nil, fmt.Errorf("send claude command: %w", err)
 	}
 
+	// Get the pane ID from the new session
+	out, err := exec.Command("tmux", "-L", socketName, "display-message",
+		"-t", sessionName, "-p", "#{pane_id}").Output()
+	if err != nil {
+		_ = exec.Command("tmux", "-L", socketName, "kill-session", "-t", sessionName).Run()
+		return nil, fmt.Errorf("get pane id: %w", err)
+	}
+	paneID := strings.TrimSpace(string(out))
+
 	state := &State{
-		PaneID:      paneID,
-		WindowID:    windowID,
-		TmuxSession: sessionName,
-		RepoRoot:    repoRoot,
-		CreatedAt:   time.Now(),
+		PaneID:    paneID,
+		RepoRoot:  repoRoot,
+		CreatedAt: time.Now(),
 	}
 
 	if err := writeState(state); err != nil {
@@ -79,25 +92,15 @@ func Start(repoRoot string) (*State, error) {
 	return state, nil
 }
 
-// Stop kills the CC pane and removes the state file.
+// Stop kills the CC session on the separate socket and removes the state file.
 func Stop() error {
-	state, _ := Status()
-	if state == nil {
-		// Already stopped, just clean up state file if it exists
-		os.Remove(stateFilePath())
-		return nil
-	}
-
-	err := exec.Command("tmux", "kill-pane", "-t", state.PaneID).Run()
-	if err != nil {
-		// Pane might already be dead, that's fine
-	}
-
+	// Kill the entire session on the separate socket
+	_ = exec.Command("tmux", "-L", socketName, "kill-session", "-t", sessionName).Run()
 	os.Remove(stateFilePath())
 	return nil
 }
 
-// Status reads the state file and verifies the pane still exists.
+// Status checks whether the CC session exists on the separate socket.
 // Returns nil if the CC is not running.
 func Status() (*State, error) {
 	data, err := os.ReadFile(stateFilePath())
@@ -114,10 +117,10 @@ func Status() (*State, error) {
 		return nil, nil
 	}
 
-	// Verify pane still exists
-	err = exec.Command("tmux", "display-message", "-t", state.PaneID, "-p", "").Run()
+	// Verify the session still exists on the separate socket
+	err = exec.Command("tmux", "-L", socketName, "has-session", "-t", sessionName).Run()
 	if err != nil {
-		// Pane is dead, clean up stale state
+		// Session is dead, clean up stale state
 		os.Remove(stateFilePath())
 		return nil, nil
 	}
@@ -125,7 +128,7 @@ func Status() (*State, error) {
 	return &state, nil
 }
 
-// Open shows the CC window in a tmux popup.
+// Open shows the CC session in a tmux popup by attaching to the separate socket.
 func Open(width, height string) error {
 	state, err := Status()
 	if err != nil {
@@ -135,8 +138,7 @@ func Open(width, height string) error {
 		return fmt.Errorf("command center is not running")
 	}
 
-	popupCmd := fmt.Sprintf("tmux attach -t %s \\; select-window -t %s",
-		state.TmuxSession, state.WindowID)
+	popupCmd := fmt.Sprintf("tmux -L %s attach -t %s", socketName, sessionName)
 
 	return exec.Command("tmux", "display-popup", "-E",
 		"-w", width, "-h", height, popupCmd).Run()
