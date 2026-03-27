@@ -9,12 +9,12 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/mkok/claude-mux/internal/cc"
-	"github.com/mkok/claude-mux/internal/hook"
-	"github.com/mkok/claude-mux/internal/kanban"
-	"github.com/mkok/claude-mux/internal/orchestrator"
-	"github.com/mkok/claude-mux/internal/tmux"
-	"github.com/mkok/claude-mux/internal/ui"
+	"github.com/Marcusk19/claude-mux/internal/cc"
+	"github.com/Marcusk19/claude-mux/internal/hook"
+	"github.com/Marcusk19/claude-mux/internal/kanban"
+	"github.com/Marcusk19/claude-mux/internal/orchestrator"
+	"github.com/Marcusk19/claude-mux/internal/tmux"
+	"github.com/Marcusk19/claude-mux/internal/ui"
 )
 
 func main() {
@@ -218,18 +218,16 @@ func runSwarm() {
 		files = strings.Split(*filesFlag, ",")
 	}
 
-	swarmID, err := orchestrator.Swarm(orchestrator.SwarmOpts{
+	if err := orchestrator.Swarm(orchestrator.SwarmOpts{
 		Task:      *task,
 		Context:   *context,
 		Files:     files,
 		AutoMerge: *autoMerge,
 		MaxAgents: *maxAgents,
-	})
-	if err != nil {
+	}); err != nil {
 		fmt.Fprintf(os.Stderr, "swarm error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println(swarmID)
 }
 
 func runPlan() {

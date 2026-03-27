@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 	"text/template"
+
+	"github.com/Marcusk19/claude-mux/internal/kanban"
 )
 
 // PlanOpts configures a plan session.
@@ -19,8 +21,9 @@ type PlanOpts struct {
 	MaxAgents int
 }
 
-// Plan launches an interactive Claude session for collaborative PRD writing.
-// When the user is satisfied with the PRD, Claude saves it and kicks off a swarm.
+// Plan launches an interactive Claude session that combines planning and
+// orchestration. The user iterates on a PRD, then the same session spawns
+// subagents directly — no separate coordinator session.
 // This function replaces the current process (exec).
 func Plan(opts PlanOpts) error {
 	repoRoot, err := gitRepoRoot(".")
@@ -39,6 +42,33 @@ func Plan(opts PlanOpts) error {
 	if err := os.MkdirAll(planDir, 0o755); err != nil {
 		return fmt.Errorf("creating plan directory: %w", err)
 	}
+
+	// Capture current pane ID for hook notifications
+	paneID := currentPaneID()
+
+	// Set up orchestrator infrastructure so spawn/hooks work immediately
+	orchID, err := resolveOrchestratorID()
+	if err != nil {
+		return fmt.Errorf("resolving orchestrator ID: %w", err)
+	}
+
+	// Create swarm directory with kanban board
+	swarmDir := filepath.Join(repoRoot, ".claude-mux", "swarm-"+planID)
+	if err := os.MkdirAll(swarmDir, 0o755); err != nil {
+		return fmt.Errorf("creating swarm directory: %w", err)
+	}
+
+	board := kanban.NewBoard(planID, paneID)
+	boardPath := filepath.Join(swarmDir, "kanban.json")
+	board.Path = boardPath
+	if err := kanban.SaveBoard(board); err != nil {
+		return fmt.Errorf("saving board: %w", err)
+	}
+
+	os.WriteFile(filepath.Join(swarmDir, "board-path"), []byte(boardPath), 0o644)
+
+	orchIDFile := filepath.Join(repoRoot, ".claude-mux", "orchestrator-id")
+	os.WriteFile(orchIDFile, []byte(orchID+"\n"), 0o644)
 
 	// Build file context
 	var contextBuf strings.Builder
@@ -62,21 +92,19 @@ func Plan(opts PlanOpts) error {
 	}
 
 	// Render system prompt
-	sysTmpl, err := template.New("system").Parse(plannerSystemPromptTmpl)
+	sysTmpl, err := template.New("system").Parse(unifiedPlannerSystemPromptTmpl)
 	if err != nil {
 		return fmt.Errorf("parsing system prompt template: %w", err)
 	}
 
 	sysData := struct {
 		PlanDir   string
-		PlanID    string
 		AutoMerge bool
 		MaxAgents int
 		Task      string
 		Context   string
 	}{
 		PlanDir:   filepath.Join(".claude-mux", "plan-"+planID),
-		PlanID:    planID,
 		AutoMerge: opts.AutoMerge,
 		MaxAgents: opts.MaxAgents,
 		Task:      opts.Task,
@@ -105,7 +133,7 @@ func Plan(opts PlanOpts) error {
 		return fmt.Errorf("claude not found in PATH: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Plan session %s — explore the codebase, iterate on a plan, then say \"execute\" to hand off to the swarm.\n", planID)
+	fmt.Fprintf(os.Stderr, "Plan session %s — explore the codebase, iterate on a plan, then say \"execute\" to start spawning agents.\n", planID)
 
 	// Replace current process with claude (no initial message — user drives the conversation)
 	args := []string{
@@ -116,9 +144,21 @@ func Plan(opts PlanOpts) error {
 	return syscall.Exec(claudeBin, args, os.Environ())
 }
 
-const plannerSystemPromptTmpl = `You are a project planner. You operate in planning-only mode: you read files, explore the codebase, ask questions, and iterate on a PRD — but you do NOT edit code or implement anything yourself. Implementation is handed off to a swarm of AI coding agents.
+// currentPaneID returns the tmux pane ID of the current terminal.
+func currentPaneID() string {
+	if id := os.Getenv("TMUX_PANE"); id != "" {
+		return id
+	}
+	out, err := exec.Command("tmux", "display-message", "-p", "#{pane_id}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
 
-## Your Role
+const unifiedPlannerSystemPromptTmpl = `You are a project planner and swarm coordinator. You have two phases:
+
+## Phase 1: Planning (current)
 
 You are collaborative and conversational. Your job is to:
 
@@ -144,20 +184,50 @@ You are collaborative and conversational. Your job is to:
 
 4. **Iterate**: The user may push back, ask for changes, or want to explore alternatives. Revise the PRD until they're happy.
 
-5. **Hand off to the swarm**: When the user approves (says "execute", "ship it", "go", "lgtm", or similar), do the following:
-   - Save the final PRD to ` + "`" + `{{.PlanDir}}/prd.md` + "`" + `
-   - Then hand off to the orchestrator by running:
-     ` + "`" + `claude-mux swarm --task "<one-line summary>" --file {{.PlanDir}}/prd.md{{if .AutoMerge}} --auto-merge{{end}} --max-agents {{.MaxAgents}}` + "`" + `
-   - Do NOT attempt to implement the plan yourself. The swarm handles all implementation.
+5. **Execute**: When the user approves (says "execute", "ship it", "go", "lgtm", or similar), transition to Phase 2.
+
+## Phase 2: Execution
+
+When the user approves the plan:
+
+1. **Save the PRD** to ` + "`" + `{{.PlanDir}}/prd.md` + "`" + `
+
+2. **Spawn implementers** for each subtask using:
+   ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>" --card-id <card-id>` + "`" + `
+
+   Spawn at most {{.MaxAgents}} agents at a time. If you have more subtasks, wait for some to complete before spawning more.
+
+3. **Wait for notifications**: Agents will notify you when they complete. You will receive a message like:
+   ` + "`" + `Agent <task-id> completed on branch <branch>` + "`" + `
+   Wait for these messages instead of polling. You can run ` + "`" + `claude-mux status` + "`" + ` as a fallback if needed.
+
+4. **Validate completed work**: When an implementer completes, spawn a validator in the same worktree:
+   ` + "`" + `claude-mux spawn --task "validate: review the changes, run tests, and verify correctness" --worktree <worktree_path> --branch <branch_name>` + "`" + `
+
+5. **Collect results** when all implementers and validators are done:
+{{- if .AutoMerge}}
+   ` + "`" + `claude-mux collect --merge` + "`" + `
+{{- else}}
+   ` + "`" + `claude-mux collect` + "`" + `
+{{- end}}
+
+6. **Report a summary** of what was accomplished, including:
+   - Which subtasks succeeded or failed
+   - Key changes made in each branch
+   - Any issues found during validation
+   - Whether branches were merged (if auto-merge was enabled)
 
 ## Guidelines
 
-- **Planning only** — do not edit files, create files, or run non-read commands. Your output is the PRD.
+- **During Phase 1**: Do not edit files, create files (except the PRD), or run non-read commands. Your output is the PRD.
+- **During Phase 2**: Do NOT modify code directly. Your only job is to coordinate subagents.
 - Keep subtasks **independent** to avoid merge conflicts between agents. Each subtask should touch different files where possible.
 - Be opinionated — suggest good approaches rather than listing options endlessly.
 - If the task is small enough for one agent, say so. Not everything needs a swarm.
 - Reference actual code paths and function names from the codebase.
 - The PRD should be detailed enough that an AI agent can implement each subtask without further clarification.
+- If a subtask fails, you may retry it once with a refined task description.
+- If validation fails, spawn a new implementer to fix the issues in the same worktree.
 {{- if .Task}}
 
 ## User's Task

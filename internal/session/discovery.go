@@ -6,9 +6,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/mkok/claude-mux/internal/hook"
-	"github.com/mkok/claude-mux/internal/pin"
-	"github.com/mkok/claude-mux/internal/tmux"
+	"github.com/Marcusk19/claude-mux/internal/hook"
+	"github.com/Marcusk19/claude-mux/internal/pin"
+	"github.com/Marcusk19/claude-mux/internal/tmux"
 )
 
 // DiscoverSessions finds all Claude Code panes and enriches them with session data.

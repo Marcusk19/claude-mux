@@ -1,4 +1,4 @@
-module github.com/mkok/claude-mux
+module github.com/Marcusk19/claude-mux
 
 go 1.24.2
 

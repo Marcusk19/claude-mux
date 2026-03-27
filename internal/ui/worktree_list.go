@@ -3,7 +3,7 @@ package ui
 import (
 	"fmt"
 
-	"github.com/mkok/claude-mux/internal/worktree"
+	"github.com/Marcusk19/claude-mux/internal/worktree"
 )
 
 // worktreeItem implements the list.DefaultItem interface for the worktree list.

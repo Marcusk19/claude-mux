@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mkok/claude-mux/internal/kanban"
+	"github.com/Marcusk19/claude-mux/internal/kanban"
 )
 
 const subagentSystemPromptTmpl = `You are an implementation agent in a multi-agent swarm. You have been assigned a specific subtask.

@@ -8,9 +8,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"text/template"
 
-	"github.com/mkok/claude-mux/internal/kanban"
+	"github.com/Marcusk19/claude-mux/internal/kanban"
 )
 
 // SwarmOpts configures a swarm launch.
@@ -23,16 +24,16 @@ type SwarmOpts struct {
 }
 
 // Swarm launches a coordinator Claude session that breaks a task into subtasks
-// and manages subagents. Returns the swarm ID.
-func Swarm(opts SwarmOpts) (string, error) {
+// and manages subagents. This function replaces the current process (exec).
+func Swarm(opts SwarmOpts) error {
 	orchID, err := resolveOrchestratorID()
 	if err != nil {
-		return "", fmt.Errorf("resolving orchestrator ID: %w", err)
+		return fmt.Errorf("resolving orchestrator ID: %w", err)
 	}
 
 	repoRoot, err := gitRepoRoot(".")
 	if err != nil {
-		return "", fmt.Errorf("not a git repository: %w", err)
+		return fmt.Errorf("not a git repository: %w", err)
 	}
 
 	swarmID := generateTaskID()
@@ -41,10 +42,13 @@ func Swarm(opts SwarmOpts) (string, error) {
 		opts.MaxAgents = 3
 	}
 
+	// Capture current pane ID for hook notifications
+	paneID := currentPaneID()
+
 	// Create swarm directory
 	swarmDir := filepath.Join(repoRoot, ".claude-mux", "swarm-"+swarmID)
 	if err := os.MkdirAll(swarmDir, 0o755); err != nil {
-		return "", fmt.Errorf("creating swarm directory: %w", err)
+		return fmt.Errorf("creating swarm directory: %w", err)
 	}
 
 	// Build context with optional files
@@ -56,7 +60,7 @@ func Swarm(opts SwarmOpts) (string, error) {
 	for _, f := range opts.Files {
 		data, err := os.ReadFile(f)
 		if err != nil {
-			return "", fmt.Errorf("reading %s: %w", f, err)
+			return fmt.Errorf("reading %s: %w", f, err)
 		}
 		contextBuf.WriteString("\n## File: ")
 		contextBuf.WriteString(f)
@@ -81,7 +85,7 @@ func Swarm(opts SwarmOpts) (string, error) {
 	// Render system prompt (coordinator instructions)
 	sysTmpl, err := template.New("system").Parse(sysTmplStr)
 	if err != nil {
-		return "", fmt.Errorf("parsing system prompt template: %w", err)
+		return fmt.Errorf("parsing system prompt template: %w", err)
 	}
 
 	sysData := struct {
@@ -95,18 +99,18 @@ func Swarm(opts SwarmOpts) (string, error) {
 	systemPromptFile := filepath.Join(swarmDir, "system-prompt.txt")
 	sf, err := os.Create(systemPromptFile)
 	if err != nil {
-		return "", fmt.Errorf("creating system prompt file: %w", err)
+		return fmt.Errorf("creating system prompt file: %w", err)
 	}
 	if err := sysTmpl.Execute(sf, sysData); err != nil {
 		sf.Close()
-		return "", fmt.Errorf("rendering system prompt: %w", err)
+		return fmt.Errorf("rendering system prompt: %w", err)
 	}
 	sf.Close()
 
 	// Render initial message (task + context)
 	msgTmpl, err := template.New("message").Parse(msgTmplStr)
 	if err != nil {
-		return "", fmt.Errorf("parsing initial message template: %w", err)
+		return fmt.Errorf("parsing initial message template: %w", err)
 	}
 
 	msgData := struct {
@@ -120,30 +124,13 @@ func Swarm(opts SwarmOpts) (string, error) {
 	initialMessageFile := filepath.Join(swarmDir, "initial-message.txt")
 	mf, err := os.Create(initialMessageFile)
 	if err != nil {
-		return "", fmt.Errorf("creating initial message file: %w", err)
+		return fmt.Errorf("creating initial message file: %w", err)
 	}
 	if err := msgTmpl.Execute(mf, msgData); err != nil {
 		mf.Close()
-		return "", fmt.Errorf("rendering initial message: %w", err)
+		return fmt.Errorf("rendering initial message: %w", err)
 	}
 	mf.Close()
-
-	// Launch interactive coordinator Claude session in a tmux split
-	relSystemPrompt := filepath.Join(".claude-mux", "swarm-"+swarmID, "system-prompt.txt")
-	relInitialMessage := filepath.Join(".claude-mux", "swarm-"+swarmID, "initial-message.txt")
-	shellCmd := fmt.Sprintf(`claude --append-system-prompt "$(cat %s)" "$(cat %s)"`,
-		relSystemPrompt, relInitialMessage)
-
-	out, err := exec.Command(
-		"tmux", "split-window", "-v",
-		"-c", repoRoot,
-		"-P", "-F", "#{pane_id}",
-		shellCmd,
-	).Output()
-	if err != nil {
-		return "", fmt.Errorf("opening tmux pane: %w", err)
-	}
-	paneID := strings.TrimSpace(string(out))
 
 	// Create kanban board
 	board := kanban.NewBoard(swarmID, paneID)
@@ -164,18 +151,42 @@ func Swarm(opts SwarmOpts) (string, error) {
 	boardPath := filepath.Join(swarmDir, "kanban.json")
 	board.Path = boardPath
 	if err := kanban.SaveBoard(board); err != nil {
-		return "", fmt.Errorf("saving board: %w", err)
+		return fmt.Errorf("saving board: %w", err)
 	}
 
 	// Write board path reference
 	os.WriteFile(filepath.Join(swarmDir, "board-path"), []byte(boardPath), 0o644)
 
-	// Write orchestrator-id so the coordinator resolves to the same orchestrator
+	// Write orchestrator-id so spawn resolves to the same orchestrator
 	orchIDFile := filepath.Join(repoRoot, ".claude-mux", "orchestrator-id")
 	os.WriteFile(orchIDFile, []byte(orchID+"\n"), 0o644)
 
-	fmt.Fprintf(os.Stderr, "Swarm %s launched in pane %s (orchestrator: %s)\n", swarmID, paneID, orchID)
-	return swarmID, nil
+	// Read rendered files for claude args
+	systemPrompt, err := os.ReadFile(systemPromptFile)
+	if err != nil {
+		return fmt.Errorf("reading system prompt: %w", err)
+	}
+
+	initialMessage, err := os.ReadFile(initialMessageFile)
+	if err != nil {
+		return fmt.Errorf("reading initial message: %w", err)
+	}
+
+	claudeBin, err := exec.LookPath("claude")
+	if err != nil {
+		return fmt.Errorf("claude not found in PATH: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Swarm %s (orchestrator: %s)\n", swarmID, orchID)
+
+	// Replace current process with claude
+	args := []string{
+		"claude",
+		"--append-system-prompt", string(systemPrompt),
+		string(initialMessage),
+	}
+
+	return syscall.Exec(claudeBin, args, os.Environ())
 }
 
 const coordinatorSystemPromptTmpl = `You are a swarm coordinator. Your job is to break down a task into independent subtasks, spawn subagents to implement them, validate results, and collect everything when done.

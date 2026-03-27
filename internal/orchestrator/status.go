@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mkok/claude-mux/internal/hook"
-	"github.com/mkok/claude-mux/internal/tmux"
+	"github.com/Marcusk19/claude-mux/internal/hook"
+	"github.com/Marcusk19/claude-mux/internal/tmux"
 )
 
 // StatusResult holds the resolved status of a subagent.

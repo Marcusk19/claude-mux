@@ -3,9 +3,9 @@ package kanban
 import (
 	"time"
 
-	"github.com/mkok/claude-mux/internal/hook"
-	"github.com/mkok/claude-mux/internal/session"
-	"github.com/mkok/claude-mux/internal/tmux"
+	"github.com/Marcusk19/claude-mux/internal/hook"
+	"github.com/Marcusk19/claude-mux/internal/session"
+	"github.com/Marcusk19/claude-mux/internal/tmux"
 )
 
 // PaneCard represents a single Claude agent pane in the kanban view.

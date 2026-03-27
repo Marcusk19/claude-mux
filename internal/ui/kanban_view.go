@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mkok/claude-mux/internal/kanban"
-	"github.com/mkok/claude-mux/internal/session"
+	"github.com/Marcusk19/claude-mux/internal/kanban"
+	"github.com/Marcusk19/claude-mux/internal/session"
 )
 
 // kanbanMsg carries discovered kanban cards to the TUI.

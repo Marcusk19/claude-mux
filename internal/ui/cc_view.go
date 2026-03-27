@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mkok/claude-mux/internal/cc"
+	"github.com/Marcusk19/claude-mux/internal/cc"
 )
 
 func renderCCView(state *cc.State, width, height int) string {

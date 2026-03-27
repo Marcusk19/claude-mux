@@ -7,8 +7,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mkok/claude-mux/internal/session"
-	"github.com/mkok/claude-mux/internal/windowname"
+	"github.com/Marcusk19/claude-mux/internal/session"
+	"github.com/Marcusk19/claude-mux/internal/windowname"
 )
 
 // groupHeaderItem represents a group header in the session list.

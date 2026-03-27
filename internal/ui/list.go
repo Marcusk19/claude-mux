@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mkok/claude-mux/internal/session"
+	"github.com/Marcusk19/claude-mux/internal/session"
 )
 
 // sessionItem implements the list.DefaultItem interface for bubbles list.

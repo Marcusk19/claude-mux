@@ -9,13 +9,13 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mkok/claude-mux/internal/cc"
-	"github.com/mkok/claude-mux/internal/kanban"
-	"github.com/mkok/claude-mux/internal/pin"
-	"github.com/mkok/claude-mux/internal/session"
-	"github.com/mkok/claude-mux/internal/tmux"
-	"github.com/mkok/claude-mux/internal/windowname"
-	"github.com/mkok/claude-mux/internal/worktree"
+	"github.com/Marcusk19/claude-mux/internal/cc"
+	"github.com/Marcusk19/claude-mux/internal/kanban"
+	"github.com/Marcusk19/claude-mux/internal/pin"
+	"github.com/Marcusk19/claude-mux/internal/session"
+	"github.com/Marcusk19/claude-mux/internal/tmux"
+	"github.com/Marcusk19/claude-mux/internal/windowname"
+	"github.com/Marcusk19/claude-mux/internal/worktree"
 )
 
 const pollInterval = 2 * time.Second

@@ -3,7 +3,7 @@ package session
 import (
 	"time"
 
-	"github.com/mkok/claude-mux/internal/tmux"
+	"github.com/Marcusk19/claude-mux/internal/tmux"
 )
 
 // ActivityState represents the current state of a Claude session.

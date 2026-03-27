@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/mkok/claude-mux/internal/worktree"
+	"github.com/Marcusk19/claude-mux/internal/worktree"
 )
 
 // CleanupOpts configures cleanup behavior.
