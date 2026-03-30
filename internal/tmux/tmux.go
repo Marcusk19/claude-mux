@@ -41,27 +41,7 @@ func ListPanes() ([]PaneInfo, error) {
 		return nil, fmt.Errorf("tmux list-panes: %w", err)
 	}
 
-	var panes []PaneInfo
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, delimiter)
-		if len(parts) != 8 {
-			continue
-		}
-		panes = append(panes, PaneInfo{
-			SessionName: parts[0],
-			WindowIndex: parts[1],
-			PaneIndex:   parts[2],
-			PaneTitle:   parts[3],
-			PaneCommand: parts[4],
-			PanePath:    parts[5],
-			PaneID:      parts[6],
-			WindowName:  parts[7],
-		})
-	}
-	return panes, nil
+	return parsePaneLines(string(out)), nil
 }
 
 // IsClaudePane checks if a pane is running Claude Code.
@@ -105,8 +85,13 @@ func ListWindowPanes(sessionName, windowIndex string) ([]PaneInfo, error) {
 		return nil, fmt.Errorf("tmux list-panes -t %s: %w", target, err)
 	}
 
+	return parsePaneLines(string(out)), nil
+}
+
+// parsePaneLines parses the raw output of tmux list-panes into PaneInfo structs.
+func parsePaneLines(raw string) []PaneInfo {
 	var panes []PaneInfo
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
 		if line == "" {
 			continue
 		}
@@ -125,20 +110,28 @@ func ListWindowPanes(sessionName, windowIndex string) ([]PaneInfo, error) {
 			WindowName:  parts[7],
 		})
 	}
-	return panes, nil
+	return panes
+}
+
+// parseCurrentWindow parses the tab-delimited output of tmux display-message
+// into session name and window index.
+func parseCurrentWindow(raw string) (sessionName, windowIndex string, err error) {
+	parts := strings.Split(strings.TrimSpace(raw), "\t")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("unexpected tmux output: %s", raw)
+	}
+	return parts[0], parts[1], nil
 }
 
 // CurrentWindow returns the session name and window index of the current tmux window.
 func CurrentWindow() (sessionName, windowIndex string, err error) {
-	out, err := exec.Command("tmux", "display-message", "-p", "#{session_name}"+delimiter+"#{window_index}").Output()
+	// Use tab as delimiter instead of %%DELIM%% because display-message -p
+	// treats %% as an escape for %, converting %%DELIM%% to %DELIM%.
+	out, err := exec.Command("tmux", "display-message", "-p", "#{session_name}\t#{window_index}").Output()
 	if err != nil {
 		return "", "", fmt.Errorf("tmux display-message: %w", err)
 	}
-	parts := strings.Split(strings.TrimSpace(string(out)), delimiter)
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("unexpected tmux output: %s", string(out))
-	}
-	return parts[0], parts[1], nil
+	return parseCurrentWindow(string(out))
 }
 
 // SelectPane switches tmux focus to the given pane.
