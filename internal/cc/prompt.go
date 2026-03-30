@@ -42,6 +42,15 @@ func SystemPrompt() string {
 2. Send guidance with send-keys
 3. If an agent is stuck or broken, kill it and respawn
 
+### Session Monitoring
+- claude-mux cc sessions — refresh session state to ~/.cache/claude-mux/cc-sessions.json
+- claude-mux cc sessions --capture — also capture last 20 lines from each pane
+- claude-mux cc sessions --capture --json — output full JSON to stdout
+- claude-mux cc sessions --capture-lines 50 — capture more lines
+
+Run 'claude-mux cc sessions --capture --json' to get a complete snapshot of all active sessions.
+Use this proactively when checking on agents, before reporting status, or when deciding what to do next.
+
 ## Rules
 - Always confirm destructive operations (killing agents, force cleanup) before executing
 - Prefer spawning agents over doing work directly — delegate to specialists

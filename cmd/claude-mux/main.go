@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -95,7 +96,11 @@ Commands:
               Usage: claude-mux board update --card-id <id> --column <col>
 
   cc          Command Center management
-              Usage: claude-mux cc <start|stop|status|open>
+              Usage: claude-mux cc <start|stop|status|open|sessions>
+              sessions    Discover active Claude sessions and write JSON state
+                --capture         capture last N lines from each pane
+                --capture-lines N number of lines to capture (default 20)
+                --json            output full JSON to stdout
 
   plan        Interactive PRD planning that can launch a swarm
               --task string       initial task idea (optional)
@@ -350,6 +355,31 @@ func runCC() {
 		if err := cc.Open(width, height); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
+		}
+	case "sessions":
+		fs := flag.NewFlagSet("cc-sessions", flag.ExitOnError)
+		capture := fs.Bool("capture", false, "capture last N lines from each pane")
+		captureLines := fs.Int("capture-lines", 20, "number of lines to capture")
+		jsonOut := fs.Bool("json", false, "output full JSON to stdout")
+		fs.Parse(os.Args[3:])
+
+		state, err := cc.DiscoverAndWrite(cc.SessionsOpts{
+			Capture:      *capture,
+			CaptureLines: *captureLines,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		if *jsonOut {
+			data, _ := json.MarshalIndent(state, "", "  ")
+			fmt.Println(string(data))
+		} else {
+			fmt.Printf("Found %d active session(s)\n", state.SessionCount)
+			for _, s := range state.Sessions {
+				fmt.Printf("  %s  %-10s  %s  %s\n", s.PaneID, s.State, s.GitBranch, s.Summary)
+			}
+			fmt.Printf("\nState written to %s\n", cc.SessionsStatePath())
 		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown cc subcommand: %s\n", os.Args[2])
