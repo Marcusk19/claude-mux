@@ -23,7 +23,9 @@ tmux_version=$(tmux -V | sed -En 's/^tmux ([0-9]+\.[0-9]+).*/\1/p')
 has_popup=$(echo "$tmux_version >= 3.2" | bc 2>/dev/null || echo 0)
 
 if [ "$has_popup" = "1" ]; then
-    tmux bind-key "$key" display-popup -E -w "$popup_width" -h "$popup_height" "CLAUDE_MUX_SESSION='#{session_name}' CLAUDE_MUX_WINDOW='#{window_index}' '$BINARY'"
+    # Wrap display-popup in run-shell because display-popup does not expand
+    # tmux format variables (#{session_name}, #{window_index}), but run-shell does.
+    tmux bind-key "$key" run-shell "tmux display-popup -E -w '$popup_width' -h '$popup_height' 'CLAUDE_MUX_SESSION=#{session_name} CLAUDE_MUX_WINDOW=#{window_index} $BINARY'"
 else
     tmux bind-key "$key" new-window "'$BINARY'"
 fi
@@ -46,3 +48,9 @@ cc_key=$(tmux show-option -gqv @claude-mux-cc-key)
 cc_key=${cc_key:-X}
 
 tmux bind-key "$cc_key" run-shell "'$BINARY' cc open"
+
+# Command Center popup keybinding (alternative)
+cc_popup_key=$(tmux show-option -gqv @claude-mux-cc-popup-key)
+cc_popup_key=${cc_popup_key:-u}
+
+tmux bind-key "$cc_popup_key" run-shell "'$BINARY' cc open"
