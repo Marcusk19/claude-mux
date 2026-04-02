@@ -5,8 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -217,36 +215,6 @@ func openClaudePane(worktreeDir string, orchID string, sandbox bool, containerNa
 		return "", fmt.Errorf("writing system prompt file: %w", err)
 	}
 
-	// Determine split direction and target based on existing live subagent panes
-	states, _ := listStates(orchID)
-
-	// Filter to live panes and sort by creation time
-	var live []SubagentState
-	for _, s := range states {
-		if paneExists(s.PaneID) {
-			live = append(live, s)
-		}
-	}
-	sort.Slice(live, func(i, j int) bool {
-		return live[i].CreatedAt.Before(live[j].CreatedAt)
-	})
-
-	n := len(live)
-
-	// Build tmux split-window args
-	splitArgs := []string{"split-window"}
-	switch {
-	case n == 0:
-		// First agent: vertical split, 50% below orchestrator
-		splitArgs = append(splitArgs, "-v", "-l", "50%")
-	case n%2 == 1:
-		// Odd count (1, 3, 5...): horizontal split on last agent (pair up side by side)
-		splitArgs = append(splitArgs, "-h", "-t", live[n-1].PaneID)
-	default:
-		// Even count > 0 (2, 4...): vertical split on last agent (new row below)
-		splitArgs = append(splitArgs, "-v", "-t", live[n-1].PaneID)
-	}
-
 	// Build the shell command to run in the pane
 	var shellCmd string
 	if sandbox {
@@ -256,29 +224,23 @@ func openClaudePane(worktreeDir string, orchID string, sandbox bool, containerNa
 		shellCmd = `claude --dangerously-skip-permissions --append-system-prompt "$(cat .claude-mux/system-prompt.txt)" "$(cat .claude-mux/prompt.txt)"`
 	}
 
-	splitArgs = append(splitArgs,
+	// Always spawn subagents in a new tmux window, never within the orchestrator's session.
+	// This keeps the orchestrator/command center isolated from subagent panes.
+	windowName := filepath.Base(worktreeDir)
+	newWindowArgs := []string{
+		"new-window",
+		"-d",           // don't switch to the new window
+		"-n", windowName,
 		"-c", worktreeDir,
 		"-P", "-F", "#{pane_id}",
 		shellCmd,
-	)
+	}
 
-	out, err := exec.Command("tmux", splitArgs...).Output()
+	out, err := exec.Command("tmux", newWindowArgs...).Output()
 	if err != nil {
 		return "", err
 	}
-	newPaneID := strings.TrimSpace(string(out))
-
-	// Equalize subagent pane heights when we have 3+ agents (n >= 2 before this spawn)
-	if n >= 2 {
-		allPaneIDs := make([]string, len(live)+1)
-		for i, s := range live {
-			allPaneIDs[i] = s.PaneID
-		}
-		allPaneIDs[len(live)] = newPaneID
-		equalizeSubagentPanes(allPaneIDs)
-	}
-
-	return newPaneID, nil
+	return strings.TrimSpace(string(out)), nil
 }
 
 // buildSandboxCommand constructs a "docker run ..." shell command for a sandboxed subagent.
@@ -388,79 +350,6 @@ exec su -s /bin/sh node -c 'cd /workspace && exec claude -p --bare --dangerously
 	}
 
 	return container.BuildShellCommand(runtime, cfg)
-}
-
-func equalizeSubagentPanes(paneIDs []string) {
-	// Get pane positions from tmux
-	out, err := exec.Command("tmux", "list-panes", "-F", "#{pane_id} #{pane_top} #{window_height}").Output()
-	if err != nil {
-		return
-	}
-
-	type paneInfo struct {
-		id  string
-		top int
-	}
-
-	// Parse pane info, filtering to our subagent panes
-	paneSet := make(map[string]bool, len(paneIDs))
-	for _, id := range paneIDs {
-		paneSet[id] = true
-	}
-
-	var windowHeight int
-	var subagentPanes []paneInfo
-	minTop := -1
-
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		id := fields[0]
-		top, _ := strconv.Atoi(fields[1])
-		wh, _ := strconv.Atoi(fields[2])
-		if wh > windowHeight {
-			windowHeight = wh
-		}
-		if paneSet[id] {
-			subagentPanes = append(subagentPanes, paneInfo{id: id, top: top})
-			if minTop == -1 || top < minTop {
-				minTop = top
-			}
-		}
-	}
-
-	if len(subagentPanes) == 0 || windowHeight == 0 {
-		return
-	}
-
-	// Group by pane_top to identify rows
-	rows := make(map[int][]paneInfo)
-	for _, p := range subagentPanes {
-		rows[p.top] = append(rows[p.top], p)
-	}
-
-	numRows := len(rows)
-	if numRows == 0 {
-		return
-	}
-
-	// Orchestrator occupies everything above the first subagent row
-	orchHeight := minTop
-	availableHeight := windowHeight - orchHeight
-	heightPerRow := availableHeight / numRows
-
-	if heightPerRow < 1 {
-		return
-	}
-
-	// Resize one representative pane per row
-	for _, panes := range rows {
-		if len(panes) > 0 {
-			exec.Command("tmux", "resize-pane", "-t", panes[0].id, "-y", strconv.Itoa(heightPerRow)).Run()
-		}
-	}
 }
 
 // RepoRoot returns the git repository root for the current directory.
