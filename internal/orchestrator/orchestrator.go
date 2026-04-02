@@ -23,6 +23,8 @@ type SubagentState struct {
 	Status         string     `json:"status"` // running, completed, failed
 	CreatedAt      time.Time  `json:"created_at"`
 	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+	Sandboxed      bool       `json:"sandboxed,omitempty"`
+	ContainerName  string     `json:"container_name,omitempty"`
 }
 
 // stateDir returns the directory for a given orchestrator's state files.

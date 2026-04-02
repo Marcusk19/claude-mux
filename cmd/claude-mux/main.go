@@ -10,7 +10,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/Marcusk19/claude-mux/devcontainer"
 	"github.com/Marcusk19/claude-mux/internal/cc"
+	"github.com/Marcusk19/claude-mux/internal/container"
 	"github.com/Marcusk19/claude-mux/internal/hook"
 	"github.com/Marcusk19/claude-mux/internal/kanban"
 	"github.com/Marcusk19/claude-mux/internal/orchestrator"
@@ -48,6 +50,9 @@ func main() {
 		case "plan":
 			runPlan()
 			return
+		case "sandbox-build":
+			runSandboxBuild()
+			return
 		case "--help", "-h", "help":
 			printUsage()
 			return
@@ -73,6 +78,7 @@ Commands:
               --worktree string   reuse an existing worktree path
               --branch string     branch name for the existing worktree
               --card-id string    kanban card ID to move to in-progress
+              --sandbox           run in a sandboxed container (firewall + isolation)
 
   status      Show status of all subagents
 
@@ -91,6 +97,7 @@ Commands:
               --file string       comma-separated file paths to include
               --auto-merge        auto-merge completed branches
               --max-agents int    max concurrent subagents (default 3)
+              --sandbox           run subagents in sandboxed containers
 
   board       Update kanban board cards
               Usage: claude-mux board update --card-id <id> --column <col>
@@ -108,6 +115,10 @@ Commands:
               --file string       comma-separated file paths to include
               --auto-merge        auto-merge completed branches when swarm executes
               --max-agents int    max concurrent subagents (default 3)
+              --sandbox           run subagents in sandboxed containers
+
+  sandbox-build  Pre-build the sandbox container image
+              --force             force rebuild even if image is up to date
 
 Flags:
   --help, -h  Show this help message`)
@@ -133,6 +144,7 @@ func runSpawn() {
 	worktree := fs.String("worktree", "", "reuse an existing worktree path")
 	branch := fs.String("branch", "", "branch name for the existing worktree")
 	cardID := fs.String("card-id", "", "kanban card ID to move to in-progress")
+	sandbox := fs.Bool("sandbox", false, "run subagent in a sandboxed container")
 	fs.Parse(os.Args[2:])
 
 	if *task == "" {
@@ -152,6 +164,7 @@ func runSpawn() {
 		WorktreePath: *worktree,
 		BranchName:   *branch,
 		CardID:       *cardID,
+		Sandbox:      *sandbox,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "spawn error: %v\n", err)
@@ -211,6 +224,7 @@ func runSwarm() {
 	filesFlag := fs.String("file", "", "comma-separated file paths to include")
 	autoMerge := fs.Bool("auto-merge", false, "auto-merge completed branches")
 	maxAgents := fs.Int("max-agents", 3, "max concurrent subagents")
+	sandbox := fs.Bool("sandbox", false, "run subagents in sandboxed containers")
 	fs.Parse(os.Args[2:])
 
 	if *task == "" {
@@ -229,6 +243,7 @@ func runSwarm() {
 		Files:     files,
 		AutoMerge: *autoMerge,
 		MaxAgents: *maxAgents,
+		Sandbox:   *sandbox,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "swarm error: %v\n", err)
 		os.Exit(1)
@@ -242,6 +257,7 @@ func runPlan() {
 	filesFlag := fs.String("file", "", "comma-separated file paths to include")
 	autoMerge := fs.Bool("auto-merge", false, "auto-merge completed branches when swarm executes")
 	maxAgents := fs.Int("max-agents", 3, "max concurrent subagents for swarm execution")
+	sandbox := fs.Bool("sandbox", false, "run subagents in sandboxed containers")
 	fs.Parse(os.Args[2:])
 
 	var files []string
@@ -255,6 +271,7 @@ func runPlan() {
 		Files:     files,
 		AutoMerge: *autoMerge,
 		MaxAgents: *maxAgents,
+		Sandbox:   *sandbox,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "plan error: %v\n", err)
 		os.Exit(1)
@@ -397,6 +414,29 @@ func tmuxOption(name, defaultVal string) string {
 		return defaultVal
 	}
 	return val
+}
+
+func runSandboxBuild() {
+	fs := flag.NewFlagSet("sandbox-build", flag.ExitOnError)
+	force := fs.Bool("force", false, "force rebuild even if image is up to date")
+	fs.Parse(os.Args[2:])
+
+	runtime, err := container.DetectRuntime()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if *force {
+		err = container.BuildImage(runtime, devcontainer.Assets)
+	} else {
+		err = container.EnsureImage(runtime, devcontainer.Assets)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Sandbox image ready:", container.ImageName)
 }
 
 func runTUI() {

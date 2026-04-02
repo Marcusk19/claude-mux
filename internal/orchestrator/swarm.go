@@ -21,6 +21,7 @@ type SwarmOpts struct {
 	Files     []string // optional: file paths to include
 	AutoMerge bool     // whether to auto-merge completed branches
 	MaxAgents int      // max concurrent subagents (default 3)
+	Sandbox   bool     // run subagents in sandboxed containers
 }
 
 // Swarm launches a coordinator Claude session that breaks a task into subtasks
@@ -91,9 +92,11 @@ func Swarm(opts SwarmOpts) error {
 	sysData := struct {
 		AutoMerge bool
 		MaxAgents int
+		Sandbox   bool
 	}{
 		AutoMerge: opts.AutoMerge,
 		MaxAgents: opts.MaxAgents,
+		Sandbox:   opts.Sandbox,
 	}
 
 	systemPromptFile := filepath.Join(swarmDir, "system-prompt.txt")
@@ -200,7 +203,7 @@ const coordinatorSystemPromptTmpl = `You are a swarm coordinator. Your job is to
 ## Spawning and monitoring
 
 - **Spawn implementers** for each subtask using:
-  ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>" --card-id <card-id>` + "`" + `
+  ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>" --card-id <card-id>{{if .Sandbox}} --sandbox{{end}}` + "`" + `
 
   Spawn at most {{.MaxAgents}} agents at a time. If you have more subtasks than that, wait for some to complete before spawning more.
 
@@ -256,7 +259,7 @@ const coordinatorPlanDrivenSystemPromptTmpl = `You are a swarm coordinator. A PR
 ## Spawning and monitoring
 
 - **Spawn implementers** for each subtask using:
-  ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>" --card-id <card-id>` + "`" + `
+  ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>" --card-id <card-id>{{if .Sandbox}} --sandbox{{end}}` + "`" + `
 
   Spawn at most {{.MaxAgents}} agents at a time. If you have more subtasks than that, wait for some to complete before spawning more.
 

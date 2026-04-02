@@ -19,6 +19,7 @@ type PlanOpts struct {
 	Files     []string
 	AutoMerge bool
 	MaxAgents int
+	Sandbox   bool // run subagents in sandboxed containers
 }
 
 // Plan launches an interactive Claude session that combines planning and
@@ -103,12 +104,14 @@ func Plan(opts PlanOpts) error {
 		MaxAgents int
 		Task      string
 		Context   string
+		Sandbox   bool
 	}{
 		PlanDir:   filepath.Join(".claude-mux", "plan-"+planID),
 		AutoMerge: opts.AutoMerge,
 		MaxAgents: opts.MaxAgents,
 		Task:      opts.Task,
 		Context:   contextBuf.String(),
+		Sandbox:   opts.Sandbox,
 	}
 
 	systemPromptFile := filepath.Join(planDir, "system-prompt.txt")
@@ -193,7 +196,7 @@ When the user approves the plan:
 1. **Save the PRD** to ` + "`" + `{{.PlanDir}}/prd.md` + "`" + `
 
 2. **Spawn implementers** for each subtask using:
-   ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>" --card-id <card-id>` + "`" + `
+   ` + "`" + `claude-mux spawn --task "implement: <detailed subtask description>" --card-id <card-id>{{if .Sandbox}} --sandbox{{end}}` + "`" + `
 
    Spawn at most {{.MaxAgents}} agents at a time. If you have more subtasks, wait for some to complete before spawning more.
 
