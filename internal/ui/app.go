@@ -236,6 +236,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ccExecDoneMsg:
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("CC error: %v", msg.err)
+		}
 		return m, pollCCStatus
 
 	case kanbanBoardMsg:
@@ -741,27 +744,14 @@ func removeWorktreeCmd(repoRoot, path string, force bool) tea.Cmd {
 }
 
 func (m *Model) openCCCmd() tea.Cmd {
-	// Detect repo root for EnsureRunning
-	repoRoot := ""
-	if m.ccState != nil {
-		repoRoot = m.ccState.RepoRoot
-	}
-	if repoRoot == "" {
-		out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
-		if err == nil {
-			repoRoot = strings.TrimSpace(string(out))
+	repoRoot := cc.DefaultRepoRoot()
+
+	if _, err := cc.EnsureRunning(repoRoot); err != nil {
+		return func() tea.Msg {
+			return ccExecDoneMsg{err: fmt.Errorf("CC start failed: %w", err)}
 		}
 	}
-	if repoRoot == "" {
-		return nil
-	}
 
-	// Ensure the CC session is running
-	if _, err := cc.EnsureRunning(repoRoot); err != nil {
-		return nil
-	}
-
-	// Hand the terminal to the CC's tmux session via tea.ExecProcess
 	c := exec.Command("tmux", "-L", "claude-mux-cc", "attach", "-t", "cc")
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return ccExecDoneMsg{err: err}

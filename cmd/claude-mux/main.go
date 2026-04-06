@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -119,6 +120,9 @@ Commands:
 
   sandbox-build  Pre-build the sandbox container image
               --force             force rebuild even if image is up to date
+
+Tmux options:
+  @claude-mux-cc-repo    Default repo root for Command Center (default: ~/obsidian-git-sync)
 
 Flags:
   --help, -h  Show this help message`)
@@ -358,19 +362,22 @@ func runCC() {
 		fmt.Printf("Uptime:  %s\n", time.Since(state.CreatedAt).Truncate(time.Second))
 		fmt.Printf("Repo:    %s\n", state.RepoRoot)
 	case "open":
-		repoRoot, err := orchestrator.RepoRoot()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
 		width := tmuxOption("@claude-mux-width", "80%")
 		height := tmuxOption("@claude-mux-height", "70%")
+		repoRoot := tmuxOption("@claude-mux-cc-repo", "~/obsidian-git-sync")
+
+		// Expand ~ to home directory
+		if strings.HasPrefix(repoRoot, "~/") {
+			home, _ := os.UserHomeDir()
+			repoRoot = filepath.Join(home, repoRoot[2:])
+		}
+
 		if _, err := cc.EnsureRunning(repoRoot); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			fmt.Printf("CC error: failed to start: %v\n", err)
 			os.Exit(1)
 		}
 		if err := cc.Open(width, height); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			fmt.Printf("CC error: failed to open: %v\n", err)
 			os.Exit(1)
 		}
 	case "sessions":
