@@ -51,6 +51,9 @@ func Spawn(opts SpawnOpts) (string, error) {
 		return "", fmt.Errorf("resolving orchestrator ID: %w", err)
 	}
 
+	// Set CLAUDE_MUX_SESSION for the orchestrator process itself
+	os.Setenv("CLAUDE_MUX_SESSION", orchID)
+
 	repoDir := opts.RepoDir
 	if repoDir == "" {
 		repoDir = "."
@@ -128,7 +131,7 @@ func Spawn(opts SpawnOpts) (string, error) {
 	}
 
 	// Open tmux pane with claude
-	paneID, err := openClaudePane(absWorktree, orchID, opts.Sandbox, containerName)
+	paneID, err := openClaudePane(absWorktree, orchID, taskID, opts.Sandbox, containerName)
 	if err != nil {
 		return "", fmt.Errorf("opening tmux pane: %w", err)
 	}
@@ -210,7 +213,7 @@ func paneExists(paneID string) bool {
 	return err == nil
 }
 
-func openClaudePane(worktreeDir string, orchID string, sandbox bool, containerName string) (string, error) {
+func openClaudePane(worktreeDir string, orchID string, taskID string, sandbox bool, containerName string) (string, error) {
 	prompt := "Read .claude-mux/task.md and complete the task. Commit your changes when done."
 	// Write prompt to a file to avoid shell quoting issues
 	promptFile := filepath.Join(worktreeDir, ".claude-mux", "prompt.txt")
@@ -225,17 +228,7 @@ func openClaudePane(worktreeDir string, orchID string, sandbox bool, containerNa
 	}
 
 	// Build the shell command to run in the pane
-	var shellCmd string
-	if sandbox {
-		innerCmd := buildSandboxCommand(worktreeDir, containerName)
-		containerLog := filepath.Join(worktreeDir, ".claude-mux", "container.log")
-		// Redirect stderr to a log file so docker failures are diagnosable
-		// even after the tmux pane dies
-		shellCmd = fmt.Sprintf("%s 2>&1 | tee %s", innerCmd, containerLog)
-	} else {
-		// Launch claude directly — using --dangerously-skip-permissions for autonomous subagent work.
-		shellCmd = `claude --dangerously-skip-permissions --append-system-prompt "$(cat .claude-mux/system-prompt.txt)" "$(cat .claude-mux/prompt.txt)"`
-	}
+	shellCmd := buildShellCmd(orchID, taskID, worktreeDir, sandbox, containerName)
 
 	// Always spawn subagents in a new tmux window, never within the orchestrator's session.
 	// This keeps the orchestrator/command center isolated from subagent panes.
@@ -256,8 +249,23 @@ func openClaudePane(worktreeDir string, orchID string, sandbox bool, containerNa
 	return strings.TrimSpace(string(out)), nil
 }
 
+// buildShellCmd constructs the shell command string for a subagent pane.
+// Exported as a function for testability.
+func buildShellCmd(orchID, taskID, worktreeDir string, sandbox bool, containerName string) string {
+	sessionEnv := orchID + "/" + taskID
+	if sandbox {
+		innerCmd := buildSandboxCommand(worktreeDir, containerName, sessionEnv)
+		containerLog := filepath.Join(worktreeDir, ".claude-mux", "container.log")
+		// Redirect stderr to a log file so docker failures are diagnosable
+		// even after the tmux pane dies
+		return fmt.Sprintf("%s 2>&1 | tee %s", innerCmd, containerLog)
+	}
+	// Launch claude directly — using --dangerously-skip-permissions for autonomous subagent work.
+	return fmt.Sprintf(`export CLAUDE_MUX_SESSION=%s && claude --dangerously-skip-permissions --append-system-prompt "$(cat .claude-mux/system-prompt.txt)" "$(cat .claude-mux/prompt.txt)"`, sessionEnv)
+}
+
 // buildSandboxCommand constructs a "docker run ..." shell command for a sandboxed subagent.
-func buildSandboxCommand(worktreeDir string, containerName string) string {
+func buildSandboxCommand(worktreeDir string, containerName string, sessionEnv string) string {
 	runtime, _ := container.DetectRuntime()
 
 	home, _ := os.UserHomeDir()
@@ -301,7 +309,8 @@ exec su -s /bin/sh node -c 'cd /workspace && exec claude -p --bare --dangerously
 			{Source: cacheDir, Target: cacheDir},
 		},
 		EnvVars: map[string]string{
-			"CLAUDE_MUX_CACHE": cacheDir,
+			"CLAUDE_MUX_CACHE":   cacheDir,
+			"CLAUDE_MUX_SESSION": sessionEnv,
 		},
 	}
 
