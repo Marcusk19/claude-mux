@@ -31,6 +31,8 @@ func EnsureImage(runtime Runtime, assets fs.FS) error {
 			if imageExists(runtime) {
 				return nil
 			}
+			// Image was pruned but hash file is stale — remove it to force a clean rebuild
+			os.Remove(hashFile())
 		}
 	}
 
@@ -68,8 +70,13 @@ func BuildImage(runtime Runtime, assets fs.FS) error {
 	return EnsureImage(runtime, assets)
 }
 
-func imageExists(runtime Runtime) bool {
+// ImageExists reports whether the sandbox image is available in the local container store.
+func ImageExists(runtime Runtime) bool {
 	return exec.Command(string(runtime), "image", "inspect", ImageName).Run() == nil
+}
+
+func imageExists(runtime Runtime) bool {
+	return ImageExists(runtime)
 }
 
 func hashAssets(assets fs.FS) (string, error) {

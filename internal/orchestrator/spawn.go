@@ -40,6 +40,7 @@ type SpawnOpts struct {
 	BranchName   string   // optional: branch name for the existing worktree
 	CardID       string   // optional: kanban card ID to move to in-progress
 	Sandbox      bool     // run the subagent inside a sandboxed container
+	RepoDir      string   // optional: git repo directory (defaults to cwd)
 }
 
 // Spawn creates a worktree, writes a task file, opens a tmux pane with claude, and saves state.
@@ -50,7 +51,11 @@ func Spawn(opts SpawnOpts) (string, error) {
 		return "", fmt.Errorf("resolving orchestrator ID: %w", err)
 	}
 
-	repoRoot, err := gitRepoRoot(".")
+	repoDir := opts.RepoDir
+	if repoDir == "" {
+		repoDir = "."
+	}
+	repoRoot, err := gitRepoRoot(repoDir)
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %w", err)
 	}
@@ -114,6 +119,10 @@ func Spawn(opts SpawnOpts) (string, error) {
 		}
 		if err := container.EnsureImage(runtime, devcontainer.Assets); err != nil {
 			return "", fmt.Errorf("building sandbox image: %w", err)
+		}
+		// Verify the image actually exists after build — catches silent build failures
+		if !container.ImageExists(runtime) {
+			return "", fmt.Errorf("sandbox image %q not found after build", container.ImageName)
 		}
 		containerName = "claude-mux-" + taskID
 	}
@@ -218,7 +227,11 @@ func openClaudePane(worktreeDir string, orchID string, sandbox bool, containerNa
 	// Build the shell command to run in the pane
 	var shellCmd string
 	if sandbox {
-		shellCmd = buildSandboxCommand(worktreeDir, containerName)
+		innerCmd := buildSandboxCommand(worktreeDir, containerName)
+		containerLog := filepath.Join(worktreeDir, ".claude-mux", "container.log")
+		// Redirect stderr to a log file so docker failures are diagnosable
+		// even after the tmux pane dies
+		shellCmd = fmt.Sprintf("%s 2>&1 | tee %s", innerCmd, containerLog)
 	} else {
 		// Launch claude directly — using --dangerously-skip-permissions for autonomous subagent work.
 		shellCmd = `claude --dangerously-skip-permissions --append-system-prompt "$(cat .claude-mux/system-prompt.txt)" "$(cat .claude-mux/prompt.txt)"`
