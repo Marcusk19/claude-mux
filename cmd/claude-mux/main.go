@@ -76,6 +76,7 @@ Commands:
               --task string       task description (required)
               --context string    additional context
               --file string       comma-separated file paths to include
+              --repo string       git repo directory (defaults to cwd)
               --worktree string   reuse an existing worktree path
               --branch string     branch name for the existing worktree
               --card-id string    kanban card ID to move to in-progress
@@ -96,6 +97,7 @@ Commands:
               --task string       task description (required)
               --context string    additional context
               --file string       comma-separated file paths to include
+              --repo string       git repo directory (defaults to cwd)
               --auto-merge        auto-merge completed branches
               --max-agents int    max concurrent subagents (default 3)
               --sandbox           run subagents in sandboxed containers
@@ -149,6 +151,7 @@ func runSpawn() {
 	branch := fs.String("branch", "", "branch name for the existing worktree")
 	cardID := fs.String("card-id", "", "kanban card ID to move to in-progress")
 	sandbox := fs.Bool("sandbox", false, "run subagent in a sandboxed container")
+	repo := fs.String("repo", "", "git repo directory (defaults to cwd)")
 	fs.Parse(os.Args[2:])
 
 	if *task == "" {
@@ -169,6 +172,7 @@ func runSpawn() {
 		BranchName:   *branch,
 		CardID:       *cardID,
 		Sandbox:      *sandbox,
+		RepoDir:      *repo,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "spawn error: %v\n", err)
@@ -229,6 +233,7 @@ func runSwarm() {
 	autoMerge := fs.Bool("auto-merge", false, "auto-merge completed branches")
 	maxAgents := fs.Int("max-agents", 3, "max concurrent subagents")
 	sandbox := fs.Bool("sandbox", false, "run subagents in sandboxed containers")
+	repo := fs.String("repo", "", "git repo directory (defaults to cwd)")
 	fs.Parse(os.Args[2:])
 
 	if *task == "" {
@@ -248,6 +253,7 @@ func runSwarm() {
 		AutoMerge: *autoMerge,
 		MaxAgents: *maxAgents,
 		Sandbox:   *sandbox,
+		RepoDir:   *repo,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "swarm error: %v\n", err)
 		os.Exit(1)
@@ -262,6 +268,7 @@ func runPlan() {
 	autoMerge := fs.Bool("auto-merge", false, "auto-merge completed branches when swarm executes")
 	maxAgents := fs.Int("max-agents", 3, "max concurrent subagents for swarm execution")
 	sandbox := fs.Bool("sandbox", false, "run subagents in sandboxed containers")
+	repo := fs.String("repo", "", "git repo directory (defaults to cwd)")
 	fs.Parse(os.Args[2:])
 
 	var files []string
@@ -276,6 +283,7 @@ func runPlan() {
 		AutoMerge: *autoMerge,
 		MaxAgents: *maxAgents,
 		Sandbox:   *sandbox,
+		RepoDir:   *repo,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "plan error: %v\n", err)
 		os.Exit(1)

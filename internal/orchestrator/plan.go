@@ -19,7 +19,8 @@ type PlanOpts struct {
 	Files     []string
 	AutoMerge bool
 	MaxAgents int
-	Sandbox   bool // run subagents in sandboxed containers
+	Sandbox   bool   // run subagents in sandboxed containers
+	RepoDir   string // optional: git repo directory (defaults to cwd)
 }
 
 // Plan launches an interactive Claude session that combines planning and
@@ -27,7 +28,11 @@ type PlanOpts struct {
 // subagents directly — no separate coordinator session.
 // This function replaces the current process (exec).
 func Plan(opts PlanOpts) error {
-	repoRoot, err := gitRepoRoot(".")
+	repoDir := opts.RepoDir
+	if repoDir == "" {
+		repoDir = "."
+	}
+	repoRoot, err := gitRepoRoot(repoDir)
 	if err != nil {
 		return fmt.Errorf("not a git repository: %w", err)
 	}

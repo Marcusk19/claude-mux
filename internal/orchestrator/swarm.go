@@ -22,6 +22,7 @@ type SwarmOpts struct {
 	AutoMerge bool     // whether to auto-merge completed branches
 	MaxAgents int      // max concurrent subagents (default 3)
 	Sandbox   bool     // run subagents in sandboxed containers
+	RepoDir   string   // optional: git repo directory (defaults to cwd)
 }
 
 // Swarm launches a coordinator Claude session that breaks a task into subtasks
@@ -32,7 +33,11 @@ func Swarm(opts SwarmOpts) error {
 		return fmt.Errorf("resolving orchestrator ID: %w", err)
 	}
 
-	repoRoot, err := gitRepoRoot(".")
+	repoDir := opts.RepoDir
+	if repoDir == "" {
+		repoDir = "."
+	}
+	repoRoot, err := gitRepoRoot(repoDir)
 	if err != nil {
 		return fmt.Errorf("not a git repository: %w", err)
 	}
