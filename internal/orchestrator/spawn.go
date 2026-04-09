@@ -281,10 +281,12 @@ set -e
 chown -R node:node /workspace 2>/dev/null || true
 chown -R node:node /home/node/.claude /home/node/.claude.json 2>/dev/null || true
 chown -R node:node /home/node/.config 2>/dev/null || true
+# Harden file permissions before launching claude
+export HOME=/home/node
+su -s /bin/sh node -c '/usr/local/bin/security-init.sh'
 # Drop to node user for claude (refuses --dangerously-skip-permissions as root).
 # --bare skips hooks/onboarding setup, uses env-based auth directly.
 # -p skips the workspace trust dialog and exits after completion.
-export HOME=/home/node
 exec su -s /bin/sh node -c 'cd /workspace && exec claude -p --bare --dangerously-skip-permissions \
   --append-system-prompt "$(cat .claude-mux/system-prompt.txt)" \
   "$(cat .claude-mux/prompt.txt)"'
@@ -296,14 +298,15 @@ exec su -s /bin/sh node -c 'cd /workspace && exec claude -p --bare --dangerously
 	// the firewall provides network isolation and the container boundary
 	// provides filesystem isolation. Root is needed for iptables setup.
 	cfg := container.ContainerConfig{
-		Image:       container.ImageName,
-		Name:        containerName,
-		Remove:      true,
-		Interactive: true,
-		WorkDir:     "/workspace",
-		User:        "0:0",
-		Caps:        []string{"NET_ADMIN", "NET_RAW"},
-		Command:     "/workspace/.claude-mux/sandbox-entry.sh",
+		Image:        container.ImageName,
+		Name:         containerName,
+		Remove:       true,
+		Interactive:  true,
+		WorkDir:      "/workspace",
+		User:         "0:0",
+		Caps:         []string{"NET_ADMIN", "NET_RAW"},
+		SecurityOpts: []string{"no-new-privileges:true"},
+		Command:      "/workspace/.claude-mux/sandbox-entry.sh",
 		Mounts: []container.Mount{
 			{Source: worktreeDir, Target: "/workspace"},
 			{Source: cacheDir, Target: cacheDir},

@@ -106,3 +106,12 @@ Key packages: `internal/ui/tabs.go` (tab bar rendering), `internal/ui/worktree_l
 | `prefix + t` | `@claude-mux-worktree-v-key` | `t` | Vertical split (panes side by side) |
 
 Worktrees are created as sibling directories named `<repo>-wt-<timestamp>-<id>` with branch `worktree/<timestamp>-<id>`.
+
+### Sandbox split keybindings
+
+`claude-mux sandbox-split` builds the sandbox container image if needed and opens a tmux split with an interactive Claude session inside a sandboxed container (firewall + filesystem isolation). The current directory is bind-mounted directly — no worktree is created. Registered in `claude-mux.tmux` with two keybindings:
+
+| Keybind | tmux option | Default | Effect |
+|---------|-------------|---------|--------|
+| `prefix + S` | `@claude-mux-sandbox-h-key` | `S` | Horizontal split (panes stacked) |
+| `prefix + s` | `@claude-mux-sandbox-v-key` | `s` | Vertical split (panes side by side) |

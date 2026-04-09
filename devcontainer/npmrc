@@ -1,0 +1,23 @@
+# NPM Security Configuration
+# Created by Phase 3: Supply Chain Protection
+
+# Disable lifecycle scripts by default (blocks malicious postinstall hooks)
+ignore-scripts=true
+
+# Only allow packages from official npm registry
+registry=https://registry.npmjs.org/
+
+# Require package-lock.json (ensures reproducible builds)
+package-lock=true
+
+# Audit automatically on install
+audit=true
+
+# Block packages with known vulnerabilities (CRITICAL and HIGH only in some npm versions)
+audit-level=moderate
+
+# Disable automatic script execution
+scripts-prepend-node-path=false
+
+# Log all actions for security audit trail
+loglevel=notice

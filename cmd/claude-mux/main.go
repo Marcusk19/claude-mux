@@ -54,6 +54,9 @@ func main() {
 		case "sandbox-build":
 			runSandboxBuild()
 			return
+		case "sandbox-split":
+			runSandboxSplit()
+			return
 		case "--help", "-h", "help":
 			printUsage()
 			return
@@ -119,6 +122,10 @@ Commands:
               --auto-merge        auto-merge completed branches when swarm executes
               --max-agents int    max concurrent subagents (default 3)
               --sandbox           run subagents in sandboxed containers
+
+  sandbox-split  Open a sandboxed Claude session in a tmux split
+              --split string      -v (horizontal/stacked) or -h (vertical/side-by-side) (default -v)
+              --pane-path string  working directory of the current pane
 
   sandbox-build  Pre-build the sandbox container image
               --force             force rebuild even if image is up to date
@@ -429,6 +436,21 @@ func tmuxOption(name, defaultVal string) string {
 		return defaultVal
 	}
 	return val
+}
+
+func runSandboxSplit() {
+	fs := flag.NewFlagSet("sandbox-split", flag.ExitOnError)
+	splitFlag := fs.String("split", "-v", "tmux split flag: -v (horizontal/stacked) or -h (vertical/side-by-side)")
+	panePath := fs.String("pane-path", ".", "working directory of the current pane")
+	fs.Parse(os.Args[2:])
+
+	if err := orchestrator.SandboxSplit(orchestrator.SandboxSplitOpts{
+		SplitFlag: *splitFlag,
+		PanePath:  *panePath,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "sandbox-split error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runSandboxBuild() {

@@ -43,6 +43,17 @@ WORKTREE_SCRIPT="$CURRENT_DIR/scripts/worktree-split.sh"
 tmux bind-key "$worktree_h_key" run-shell "'$WORKTREE_SCRIPT' -v '#{pane_current_path}'"
 tmux bind-key "$worktree_v_key" run-shell "'$WORKTREE_SCRIPT' -h '#{pane_current_path}'"
 
+# Sandbox split keybindings
+sandbox_h_key=$(tmux show-option -gqv @claude-mux-sandbox-h-key)
+sandbox_h_key=${sandbox_h_key:-S}
+
+sandbox_v_key=$(tmux show-option -gqv @claude-mux-sandbox-v-key)
+sandbox_v_key=${sandbox_v_key:-s}
+
+# -v = horizontal split (panes stacked), -h = vertical split (panes side by side)
+tmux bind-key "$sandbox_h_key" run-shell "'$BINARY' sandbox-split --split -v --pane-path '#{pane_current_path}'"
+tmux bind-key "$sandbox_v_key" run-shell "'$BINARY' sandbox-split --split -h --pane-path '#{pane_current_path}'"
+
 # Command Center keybinding
 cc_key=$(tmux show-option -gqv @claude-mux-cc-key)
 cc_key=${cc_key:-X}

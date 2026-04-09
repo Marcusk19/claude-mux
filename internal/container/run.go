@@ -33,6 +33,10 @@ func BuildRunArgs(cfg ContainerConfig) []string {
 		args = append(args, "--cap-add="+cap)
 	}
 
+	for _, opt := range cfg.SecurityOpts {
+		args = append(args, "--security-opt="+opt)
+	}
+
 	for _, m := range cfg.Mounts {
 		spec := fmt.Sprintf("%s:%s", m.Source, m.Target)
 		if m.ReadOnly {
