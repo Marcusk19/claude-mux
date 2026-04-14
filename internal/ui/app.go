@@ -42,6 +42,12 @@ type ccExecDoneMsg struct{ err error }
 // tickMsg triggers a poll for sessions.
 type tickMsg time.Time
 
+// broadcastResultMsg is sent after broadcast completes.
+type broadcastResultMsg struct {
+	sent int
+	err  error
+}
+
 // Model is the Bubble Tea model for the session list.
 type Model struct {
 	list          list.Model
@@ -75,6 +81,11 @@ type Model struct {
 	globalScroll    int
 	globalItems     []selectableItem // cached selectable items for grouped mode
 	ccState         *cc.State
+	// Broadcast state
+	markedPanes    map[string]bool // pane IDs toggled via space
+	broadcastMode  bool            // true when typing broadcast text
+	broadcastInput string          // text being composed
+	broadcastConfirm bool          // true when showing y/n confirmation
 }
 
 // Selected returns the session the user chose, or nil if they quit.
@@ -135,6 +146,7 @@ func NewModel(kanbanSession, kanbanWindow string) *Model {
 		globalGrouped:   true,
 		collapsedGroups: make(map[string]bool),
 		windowNames:     windowname.Load(),
+		markedPanes:     make(map[string]bool),
 	}
 }
 
@@ -246,6 +258,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuildKanbanView()
 		return m, nil
 
+	case broadcastResultMsg:
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Broadcast error: %v", msg.err)
+		} else {
+			m.statusMessage = fmt.Sprintf("Sent to %d panes", msg.sent)
+		}
+		m.markedPanes = make(map[string]bool)
+		return m, nil
+
 	case removeResultMsg:
 		if msg.err != nil {
 			if msg.force {
@@ -300,6 +321,54 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Handle broadcast confirmation
+		if m.broadcastConfirm {
+			switch msg.String() {
+			case "y", "Y":
+				text := m.broadcastInput
+				targets := m.broadcastTargets()
+				m.broadcastConfirm = false
+				m.broadcastInput = ""
+				return m, broadcastCmd(targets, text)
+			case "n", "N", "esc":
+				m.broadcastConfirm = false
+				m.broadcastInput = ""
+				m.statusMessage = ""
+				return m, nil
+			}
+			return m, nil
+		}
+
+		// Handle broadcast text input
+		if m.broadcastMode {
+			switch msg.Type {
+			case tea.KeyEnter:
+				if m.broadcastInput != "" {
+					targets := m.broadcastTargets()
+					m.broadcastMode = false
+					m.broadcastConfirm = true
+					m.statusMessage = fmt.Sprintf("Send to %d panes: %q? (y/n)", len(targets), m.broadcastInput)
+				}
+				return m, nil
+			case tea.KeyEsc:
+				m.broadcastMode = false
+				m.broadcastInput = ""
+				return m, nil
+			case tea.KeyBackspace:
+				if len(m.broadcastInput) > 0 {
+					m.broadcastInput = m.broadcastInput[:len(m.broadcastInput)-1]
+				}
+				return m, nil
+			case tea.KeySpace:
+				m.broadcastInput += " "
+				return m, nil
+			case tea.KeyRunes:
+				m.broadcastInput += string(msg.Runes)
+				return m, nil
+			}
+			return m, nil
+		}
+
 		// Handle rename mode
 		if m.renaming {
 			switch msg.Type {
@@ -316,6 +385,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.renameInput) > 0 {
 					m.renameInput = m.renameInput[:len(m.renameInput)-1]
 				}
+				return m, nil
+			case tea.KeySpace:
+				m.renameInput += " "
 				return m, nil
 			case tea.KeyRunes:
 				m.renameInput += string(msg.Runes)
@@ -451,6 +523,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "d", "x":
 			if m.activeTab == TabWorktrees {
 				return m, m.handleRemove()
+			}
+		case " ":
+			if m.activeTab == TabGlobal || m.activeTab == TabKanban {
+				paneID := m.currentPaneID()
+				if paneID != "" {
+					if m.markedPanes[paneID] {
+						delete(m.markedPanes, paneID)
+					} else {
+						m.markedPanes[paneID] = true
+					}
+				}
+				return m, nil
+			}
+		case "b":
+			if m.activeTab == TabGlobal || m.activeTab == TabKanban {
+				m.broadcastMode = true
+				m.broadcastInput = ""
+				return m, nil
 			}
 		}
 	}
@@ -612,6 +702,97 @@ func (m *Model) handleGroupHeaderEnter() tea.Cmd {
 	return nil
 }
 
+// currentPaneID returns the pane ID of the currently focused item.
+func (m *Model) currentPaneID() string {
+	switch m.activeTab {
+	case TabGlobal:
+		if m.globalGrouped {
+			if m.globalCursor < len(m.globalItems) && !m.globalItems[m.globalCursor].isHeader {
+				return m.globalItems[m.globalCursor].session.Pane.PaneID
+			}
+		} else {
+			if item, ok := m.list.SelectedItem().(sessionItem); ok {
+				return item.session.Pane.PaneID
+			}
+		}
+	case TabKanban:
+		col := m.kanbanViewBoard.Columns[m.selectedCol]
+		if m.selectedRow < len(col.Cards) {
+			return col.Cards[m.selectedRow].PaneID
+		}
+	}
+	return ""
+}
+
+// broadcastTargets returns pane IDs to broadcast to.
+// If specific panes are marked, use those. Otherwise, use all visible Claude panes.
+func (m *Model) broadcastTargets() []string {
+	if len(m.markedPanes) > 0 {
+		targets := make([]string, 0, len(m.markedPanes))
+		for id := range m.markedPanes {
+			targets = append(targets, id)
+		}
+		return targets
+	}
+	// Fall back to all visible Claude panes
+	switch m.activeTab {
+	case TabGlobal:
+		seen := make(map[string]bool)
+		var targets []string
+		for _, s := range m.sessions {
+			if s.Pane.PaneID != "" && !seen[s.Pane.PaneID] {
+				seen[s.Pane.PaneID] = true
+				targets = append(targets, s.Pane.PaneID)
+			}
+		}
+		return targets
+	case TabKanban:
+		var targets []string
+		for _, pc := range m.kanbanCards {
+			if pc.Pane.PaneID != "" {
+				targets = append(targets, pc.Pane.PaneID)
+			}
+		}
+		return targets
+	}
+	return nil
+}
+
+// broadcastFooter renders the footer when in broadcast or confirm mode.
+func (m *Model) broadcastFooter() string {
+	if m.broadcastConfirm {
+		return confirmStyle.Render(m.statusMessage)
+	}
+	if m.broadcastMode {
+		targets := len(m.broadcastTargets())
+		label := "all"
+		if len(m.markedPanes) > 0 {
+			label = fmt.Sprintf("%d selected", len(m.markedPanes))
+		}
+		return confirmStyle.Render(fmt.Sprintf("Broadcast to %s (%d panes): %s█  (Enter to send, Esc to cancel)", label, targets, m.broadcastInput))
+	}
+	if m.statusMessage != "" {
+		return statusStyle.Render(m.statusMessage)
+	}
+	selectedHint := ""
+	if len(m.markedPanes) > 0 {
+		selectedHint = fmt.Sprintf("  %d selected", len(m.markedPanes))
+	}
+	return footerStyle.Render(fmt.Sprintf(" space:select  b:broadcast%s ", selectedHint))
+}
+
+func broadcastCmd(paneIDs []string, text string) tea.Cmd {
+	return func() tea.Msg {
+		sent := 0
+		for _, id := range paneIDs {
+			if err := tmux.SendKeys(id, text, true); err == nil {
+				sent++
+			}
+		}
+		return broadcastResultMsg{sent: sent}
+	}
+}
+
 func (m *Model) findPaneByID(paneID string) *tmux.PaneInfo {
 	for _, s := range m.sessions {
 		if s.Pane.PaneID == paneID {
@@ -637,25 +818,37 @@ func (m *Model) View() string {
 		content = renderCCView(m.ccState, m.width-h, ccHeight)
 	case TabKanban:
 		h, v := appStyle.GetFrameSize()
-		kanbanHeight := m.height - v - tabBarHeight()
-		content = renderKanbanColumns(m.kanbanViewBoard, m.selectedCol, m.selectedRow, m.width-h, kanbanHeight)
+		kanbanHeight := m.height - v - tabBarHeight() - 2 // footer
+		content = renderKanbanColumns(m.kanbanViewBoard, m.selectedCol, m.selectedRow, m.width-h, kanbanHeight, m.markedPanes)
+		footer := m.broadcastFooter()
+		content += "\n" + footer
 	case TabGlobal:
 		var footer string
-		if m.renaming {
+		if m.broadcastMode || m.broadcastConfirm {
+			footer = m.broadcastFooter()
+		} else if m.renaming {
 			footer = confirmStyle.Render(fmt.Sprintf("Rename: %s█", m.renameInput))
 		} else if m.globalGrouped {
 			pos := 0
 			if len(m.globalItems) > 0 {
 				pos = m.globalCursor + 1
 			}
-			footer = footerStyle.Render(fmt.Sprintf(" %d/%d items  g:flat  r:rename ", pos, len(m.globalItems)))
+			selectedHint := ""
+			if len(m.markedPanes) > 0 {
+				selectedHint = fmt.Sprintf("  %d selected", len(m.markedPanes))
+			}
+			footer = footerStyle.Render(fmt.Sprintf(" %d/%d items  g:flat  r:rename  b:broadcast%s ", pos, len(m.globalItems), selectedHint))
 		} else {
-			footer = footerStyle.Render(fmt.Sprintf(" %d/%d sessions  g:grouped ", m.list.Index()+1, m.totalCount))
+			selectedHint := ""
+			if len(m.markedPanes) > 0 {
+				selectedHint = fmt.Sprintf("  %d selected", len(m.markedPanes))
+			}
+			footer = footerStyle.Render(fmt.Sprintf(" %d/%d sessions  g:grouped  b:broadcast%s ", m.list.Index()+1, m.totalCount, selectedHint))
 		}
 		if m.globalGrouped {
 			h, v := appStyle.GetFrameSize()
 			groupedHeight := m.height - v - tabBarHeight() - 2 // footer
-			content = renderGroupedGlobal(m.sessions, m.windowNames, m.collapsedGroups, m.globalCursor, m.globalScroll, m.width-h, groupedHeight) + "\n" + footer
+			content = renderGroupedGlobal(m.sessions, m.windowNames, m.collapsedGroups, m.globalCursor, m.globalScroll, m.width-h, groupedHeight, m.markedPanes) + "\n" + footer
 		} else {
 			content = m.list.View() + "\n" + footer
 		}

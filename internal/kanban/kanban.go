@@ -16,6 +16,8 @@ type PaneCard struct {
 	LiveStatus string
 	LiveTool   string
 	Summary    string
+	AgentID    string // Agent Teams agent identifier
+	AgentType  string // "teammate", "lead", or empty
 }
 
 // DiscoverKanban finds Claude panes in a specific tmux window and returns cards for them.
@@ -51,6 +53,8 @@ func DiscoverKanban(sessionName, windowIndex string) ([]PaneCard, error) {
 				if err == nil && time.Since(t) < 5*time.Minute {
 					card.LiveStatus = hookState.Message
 					card.LiveTool = hookState.Tool
+					card.AgentID = hookState.AgentID
+					card.AgentType = hookState.AgentType
 
 					switch hookState.Status {
 					case "working":

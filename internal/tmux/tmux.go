@@ -148,3 +148,16 @@ func SelectPane(p PaneInfo) error {
 	_ = exec.Command("tmux", "switch-client", "-t", p.SessionName).Run()
 	return nil
 }
+
+// SendKeys sends text to a tmux pane. If pressEnter is true, an Enter keystroke
+// is appended so the text is submitted.
+func SendKeys(paneID string, text string, pressEnter bool) error {
+	args := []string{"send-keys", "-t", paneID, "--", text}
+	if pressEnter {
+		args = append(args, "Enter")
+	}
+	if err := exec.Command("tmux", args...).Run(); err != nil {
+		return fmt.Errorf("send-keys to %s: %w", paneID, err)
+	}
+	return nil
+}

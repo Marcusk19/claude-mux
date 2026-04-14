@@ -22,11 +22,14 @@ type KanbanCard struct {
 	ID          string
 	Title       string
 	Description string
+	Summary     string
 	Branch      string
 	PaneID      string
+	PanePath    string
 	State       session.ActivityState
 	LiveStatus  string
 	LiveTool    string
+	AgentType   string // "teammate", "lead", or empty
 }
 
 // KanbanColumn is a named column containing cards.
@@ -38,6 +41,19 @@ type KanbanColumn struct {
 // KanbanBoard holds the 3 columns for rendering.
 type KanbanBoard struct {
 	Columns [3]KanbanColumn // backlog, in-progress, done
+}
+
+// paneCardTitle derives a useful title from a PaneCard.
+// Uses the last path component of the working directory (e.g. "hello-world")
+// with the pane index as a fallback.
+func paneCardTitle(pc kanban.PaneCard) string {
+	if pc.Pane.PanePath != "" {
+		parts := strings.Split(pc.Pane.PanePath, "/")
+		if name := parts[len(parts)-1]; name != "" {
+			return fmt.Sprintf("%s (#%s)", name, pc.Pane.PaneIndex)
+		}
+	}
+	return fmt.Sprintf("Pane %s", pc.Pane.PaneIndex)
 }
 
 func stateEmoji(s session.ActivityState) string {
@@ -104,16 +120,31 @@ func buildKanbanBoard(board *kanban.Board, paneCards []kanban.PaneCard) KanbanBo
 		},
 	}
 
+	// Treat empty boards (stale swarm files with no cards) as nil
+	if board != nil {
+		total := 0
+		for _, cards := range board.Columns {
+			total += len(cards)
+		}
+		if total == 0 {
+			board = nil
+		}
+	}
+
 	if board == nil {
-		// No board file — all pane cards become in-progress cards
+		// No board file (or empty board) — all pane cards become in-progress cards
 		for _, pc := range paneCards {
+			title := paneCardTitle(pc)
 			kb.Columns[1].Cards = append(kb.Columns[1].Cards, KanbanCard{
-				Title:      fmt.Sprintf("Pane %s", pc.Pane.PaneIndex),
+				Title:      title,
+				Summary:    pc.Summary,
 				Branch:     pc.GitBranch,
 				PaneID:     pc.Pane.PaneID,
+				PanePath:   pc.Pane.PanePath,
 				State:      pc.State,
 				LiveStatus: pc.LiveStatus,
 				LiveTool:   pc.LiveTool,
+				AgentType:  pc.AgentType,
 			})
 		}
 		return kb
@@ -153,6 +184,7 @@ func buildKanbanBoard(board *kanban.Board, paneCards []kanban.PaneCard) KanbanBo
 					kc.State = pc.State
 					kc.LiveStatus = pc.LiveStatus
 					kc.LiveTool = pc.LiveTool
+					kc.AgentType = pc.AgentType
 					if kc.Branch == "" {
 						kc.Branch = pc.GitBranch
 					}
@@ -165,7 +197,7 @@ func buildKanbanBoard(board *kanban.Board, paneCards []kanban.PaneCard) KanbanBo
 	return kb
 }
 
-func renderKanbanColumns(kb KanbanBoard, selectedCol, selectedRow, width, height int) string {
+func renderKanbanColumns(kb KanbanBoard, selectedCol, selectedRow, width, height int, markedPanes map[string]bool) string {
 	totalCards := 0
 	for _, col := range kb.Columns {
 		totalCards += len(col.Cards)
@@ -248,18 +280,39 @@ func renderKanbanColumns(kb KanbanBoard, selectedCol, selectedRow, width, height
 					}
 				}
 
-			case 1: // in-progress: emoji + title + branch + tool/status
-				line1 := lipgloss.NewStyle().Bold(true).
-					Render(fmt.Sprintf("%s %s", stateEmoji(card.State), card.Title))
+			case 1: // in-progress: emoji + title + badge + summary + branch + tool/status
+				markPrefix := ""
+				if markedPanes[card.PaneID] {
+					markPrefix = "☑ "
+				}
+				titleText := fmt.Sprintf("%s%s %s", markPrefix, stateEmoji(card.State), card.Title)
+				if card.AgentType == "teammate" {
+					badge := lipgloss.NewStyle().Foreground(lipgloss.Color("75")).Render("[team]")
+					titleText = fmt.Sprintf("%s%s %s %s", markPrefix, stateEmoji(card.State), badge, card.Title)
+				} else if card.AgentType == "lead" {
+					badge := lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Render("[lead]")
+					titleText = fmt.Sprintf("%s%s %s %s", markPrefix, stateEmoji(card.State), badge, card.Title)
+				}
+				line1 := lipgloss.NewStyle().Bold(true).Render(titleText)
 				content = append(content, line1)
+				// Show summary (what this agent is working on)
+				if card.Summary != "" {
+					summaryStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+					wrapped := kanbanWordWrap(card.Summary, contentWidth)
+					if len(wrapped) > 2 {
+						wrapped = wrapped[:2]
+					}
+					for _, l := range wrapped {
+						content = append(content, summaryStyle.Render(l))
+					}
+				}
 				if card.Branch != "" {
 					content = append(content, lipgloss.NewStyle().
 						Foreground(lipgloss.Color("114")).Render(card.Branch))
 				}
 				if card.LiveTool != "" {
-					content = append(content, card.LiveTool)
-				} else if card.State != 0 {
-					content = append(content, card.State.String())
+					content = append(content, lipgloss.NewStyle().
+						Foreground(lipgloss.Color("245")).Render(card.LiveTool))
 				}
 				if card.LiveStatus != "" {
 					wrapped := kanbanWordWrap(card.LiveStatus, contentWidth)

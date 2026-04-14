@@ -24,7 +24,9 @@ type State struct {
 	Message   string `json:"message"` // short description of current state
 	Tool      string `json:"tool"`    // current tool being used (if any)
 	Timestamp string `json:"timestamp"`
-	PaneID    string `json:"pane_id,omitempty"` // tmux pane ID (e.g. %5)
+	PaneID    string `json:"pane_id,omitempty"`    // tmux pane ID (e.g. %5)
+	AgentID   string `json:"agent_id,omitempty"`   // Agent Teams agent identifier
+	AgentType string `json:"agent_type,omitempty"` // "teammate", "lead", or empty
 }
 
 // hookInput is the JSON structure received from Claude Code hooks via stdin.
@@ -38,6 +40,8 @@ type hookInput struct {
 	ToolInput        json.RawMessage `json:"tool_input"`         // PreToolUse
 	Message          string          `json:"message"`            // Notification
 	NotificationType string          `json:"notification_type"`  // Notification
+	AgentID          string          `json:"agent_id"`           // Agent Teams
+	AgentType        string          `json:"agent_type"`         // Agent Teams
 }
 
 type toolInputFields struct {
@@ -68,6 +72,8 @@ func Handle(event string) error {
 		SessionID: input.SessionID,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		PaneID:    os.Getenv("TMUX_PANE"),
+		AgentID:   input.AgentID,
+		AgentType: input.AgentType,
 	}
 
 	switch event {

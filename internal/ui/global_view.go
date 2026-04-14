@@ -183,9 +183,14 @@ func renderGroupedGlobal(
 	scroll int,
 	width int,
 	height int,
+	markedPanes map[string]bool,
 ) string {
 	if len(sessions) == 0 {
 		return "\n  No sessions found"
+	}
+
+	if height <= 0 || width <= 0 {
+		return ""
 	}
 
 	items := buildSelectableItems(sessions, customNames, collapsed)
@@ -260,7 +265,8 @@ func renderGroupedGlobal(
 			for i, s := range g.sessions {
 				sessionIdx := groupStartIdx + 1 + i
 				isSelected := cursor == sessionIdx
-				lines = append(lines, renderGroupSession(s, isSelected, contentWidth))
+				marked := markedPanes[s.Pane.PaneID]
+				lines = append(lines, renderGroupSession(s, isSelected, contentWidth, marked))
 			}
 		}
 
@@ -308,8 +314,11 @@ func renderGroupedGlobal(
 }
 
 // renderGroupSession renders a single session within a group box.
-func renderGroupSession(s session.ClaudeSession, selected bool, maxWidth int) string {
+func renderGroupSession(s session.ClaudeSession, selected bool, maxWidth int, marked bool) string {
 	stateEmoji := s.State.Emoji()
+	if marked {
+		stateEmoji = "☑ " + stateEmoji
+	}
 	if s.Pinned {
 		stateEmoji = "📌" + stateEmoji
 	}

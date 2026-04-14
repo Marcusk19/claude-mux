@@ -3,14 +3,16 @@ package ui
 import "github.com/charmbracelet/bubbles/key"
 
 type keyMap struct {
-	Quit     key.Binding
-	Select   key.Binding
-	Pin      key.Binding
-	Tab      key.Binding
-	ShiftTab key.Binding
-	Remove   key.Binding
-	Group    key.Binding
-	Rename   key.Binding
+	Quit         key.Binding
+	Select       key.Binding
+	Pin          key.Binding
+	Tab          key.Binding
+	ShiftTab     key.Binding
+	Remove       key.Binding
+	Group        key.Binding
+	Rename       key.Binding
+	ToggleSelect key.Binding
+	Broadcast    key.Binding
 }
 
 var keys = keyMap{
@@ -45,5 +47,13 @@ var keys = keyMap{
 	Rename: key.NewBinding(
 		key.WithKeys("r"),
 		key.WithHelp("r", "rename group"),
+	),
+	ToggleSelect: key.NewBinding(
+		key.WithKeys(" "),
+		key.WithHelp("space", "select"),
+	),
+	Broadcast: key.NewBinding(
+		key.WithKeys("b"),
+		key.WithHelp("b", "broadcast"),
 	),
 }
