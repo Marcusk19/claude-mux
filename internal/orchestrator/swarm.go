@@ -28,6 +28,11 @@ type SwarmOpts struct {
 // Swarm launches a coordinator Claude session that breaks a task into subtasks
 // and manages subagents. This function replaces the current process (exec).
 func Swarm(opts SwarmOpts) error {
+	// Enforce sandbox when running from Command Center context
+	if os.Getenv("CLAUDE_MUX_CC") == "1" && !opts.Sandbox {
+		return fmt.Errorf("sandbox is required when spawning from the Command Center (use --sandbox)")
+	}
+
 	orchID, err := resolveOrchestratorID()
 	if err != nil {
 		return fmt.Errorf("resolving orchestrator ID: %w", err)

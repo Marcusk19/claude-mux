@@ -67,8 +67,11 @@ func Start(repoRoot string) (*State, error) {
 		_ = runTmux("-L", socketName, "send-keys", "-t", sessionName, exportCmd, "Enter")
 	}
 
+	// Set CC context marker so spawn/swarm can enforce sandbox requirement
+	_ = runTmux("-L", socketName, "send-keys", "-t", sessionName, "export CLAUDE_MUX_CC=1", "Enter")
+
 	// Send the claude command referencing the prompt file
-	claudeCmd := fmt.Sprintf(`claude --dangerously-skip-permissions --append-system-prompt "$(cat %s)"`, promptFile)
+	claudeCmd := fmt.Sprintf(`claude --append-system-prompt "$(cat %s)"`, promptFile)
 	if err := runTmux("-L", socketName, "send-keys", "-t", sessionName, claudeCmd, "Enter"); err != nil {
 		_ = runTmux("-L", socketName, "kill-session", "-t", sessionName)
 		return nil, fmt.Errorf("send claude command: %w", err)

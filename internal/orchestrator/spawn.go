@@ -46,6 +46,11 @@ type SpawnOpts struct {
 // Spawn creates a worktree, writes a task file, opens a tmux pane with claude, and saves state.
 // Returns the task ID.
 func Spawn(opts SpawnOpts) (string, error) {
+	// Enforce sandbox when running from Command Center context
+	if os.Getenv("CLAUDE_MUX_CC") == "1" && !opts.Sandbox {
+		return "", fmt.Errorf("sandbox is required when spawning from the Command Center (use --sandbox)")
+	}
+
 	orchID, err := resolveOrchestratorID()
 	if err != nil {
 		return "", fmt.Errorf("resolving orchestrator ID: %w", err)
