@@ -105,6 +105,23 @@ func Collect(opts CollectOpts) ([]CollectResult, error) {
 	return results, nil
 }
 
+// PreviewAgent returns the diff stat and log for a completed agent's branch.
+func PreviewAgent(state SubagentState) (diffStat string, commitLog string, err error) {
+	repoRoot := state.RepoRoot
+
+	statOut, err := exec.Command("git", "-C", repoRoot, "diff", "--stat", "HEAD..."+state.BranchName).Output()
+	if err != nil {
+		return "", "", fmt.Errorf("diff stat: %w", err)
+	}
+
+	logOut, err := exec.Command("git", "-C", repoRoot, "log", "--oneline", "HEAD.."+state.BranchName).Output()
+	if err != nil {
+		return "", "", fmt.Errorf("log: %w", err)
+	}
+
+	return strings.TrimSpace(string(statOut)), strings.TrimSpace(string(logOut)), nil
+}
+
 // FormatCollect produces human-readable output for collected results.
 func FormatCollect(results []CollectResult) string {
 	if len(results) == 0 {

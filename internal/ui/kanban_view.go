@@ -29,7 +29,8 @@ type KanbanCard struct {
 	State       session.ActivityState
 	LiveStatus  string
 	LiveTool    string
-	AgentType   string // "teammate", "lead", or empty
+	AgentType       string // "teammate", "lead", or empty
+	TaskDescription string // Orchestrator task description
 }
 
 // KanbanColumn is a named column containing cards.
@@ -136,15 +137,16 @@ func buildKanbanBoard(board *kanban.Board, paneCards []kanban.PaneCard) KanbanBo
 		for _, pc := range paneCards {
 			title := paneCardTitle(pc)
 			kb.Columns[1].Cards = append(kb.Columns[1].Cards, KanbanCard{
-				Title:      title,
-				Summary:    pc.Summary,
-				Branch:     pc.GitBranch,
-				PaneID:     pc.Pane.PaneID,
-				PanePath:   pc.Pane.PanePath,
-				State:      pc.State,
-				LiveStatus: pc.LiveStatus,
-				LiveTool:   pc.LiveTool,
-				AgentType:  pc.AgentType,
+				Title:           title,
+				Summary:         pc.Summary,
+				Branch:          pc.GitBranch,
+				PaneID:          pc.Pane.PaneID,
+				PanePath:        pc.Pane.PanePath,
+				State:           pc.State,
+				LiveStatus:      pc.LiveStatus,
+				LiveTool:        pc.LiveTool,
+				AgentType:       pc.AgentType,
+				TaskDescription: pc.TaskDescription,
 			})
 		}
 		return kb
@@ -185,6 +187,7 @@ func buildKanbanBoard(board *kanban.Board, paneCards []kanban.PaneCard) KanbanBo
 					kc.LiveStatus = pc.LiveStatus
 					kc.LiveTool = pc.LiveTool
 					kc.AgentType = pc.AgentType
+					kc.TaskDescription = pc.TaskDescription
 					if kc.Branch == "" {
 						kc.Branch = pc.GitBranch
 					}
@@ -295,6 +298,17 @@ func renderKanbanColumns(kb KanbanBoard, selectedCol, selectedRow, width, height
 				}
 				line1 := lipgloss.NewStyle().Bold(true).Render(titleText)
 				content = append(content, line1)
+				// Show assigned task description
+				if card.TaskDescription != "" {
+					taskStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("183")).Italic(true)
+					taskWrapped := kanbanWordWrap(card.TaskDescription, contentWidth)
+					if len(taskWrapped) > 2 {
+						taskWrapped = append(taskWrapped[:2], "...")
+					}
+					for _, l := range taskWrapped {
+						content = append(content, taskStyle.Render(l))
+					}
+				}
 				// Show summary (what this agent is working on)
 				if card.Summary != "" {
 					summaryStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
