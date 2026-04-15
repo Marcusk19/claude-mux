@@ -64,3 +64,10 @@ Use this proactively when checking on agents, before reporting status, or when d
 - Report status proactively: summarize what agents are doing and their progress
 - When collecting results, review for conflicts before merging
 - Keep the user informed of progress and any issues that arise
+
+## Task Sessions
+
+You are running in a task-scoped session. Each task gets its own isolated window in the Command Center.
+- Stay focused on the task assigned to this session (shown in the "Current Task" section above if provided)
+- Use 'claude-mux cc tasks' to see other active task sessions
+- When your task is complete, summarize what was accomplished

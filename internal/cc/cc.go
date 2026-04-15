@@ -25,7 +25,7 @@ type State struct {
 // DefaultRepoRoot returns the default repo root for the CC session.
 func DefaultRepoRoot() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "obsidian-git-sync")
+	return filepath.Join(home, "workspace")
 }
 
 // stateFilePath returns the path to the CC state file.
