@@ -118,11 +118,15 @@ func NewTask(task string, repoRoot string) (*TaskState, error) {
 	}
 	_ = runTmux("-L", socketName, "send-keys", "-t", paneID, "export CLAUDE_MUX_CC=1", "Enter")
 
-	// Launch Claude with the task-scoped system prompt
+	// Launch Claude with the task-scoped system prompt.
+	// Pass the task via a file to avoid shell injection from untrusted task descriptions.
 	claudeCmd := fmt.Sprintf(`claude --append-system-prompt "$(cat %s)"`, promptFile)
 	if task != "" {
-		// Pass the task as the initial message
-		claudeCmd += fmt.Sprintf(` "%s"`, strings.ReplaceAll(task, `"`, `\"`))
+		taskFile := filepath.Join(promptDir, fmt.Sprintf("cc-task-%s.txt", taskID))
+		if err := os.WriteFile(taskFile, []byte(task), 0o644); err != nil {
+			return nil, fmt.Errorf("write task file: %w", err)
+		}
+		claudeCmd += fmt.Sprintf(` "$(cat %s)"`, taskFile)
 	}
 	if err := runTmux("-L", socketName, "send-keys", "-t", paneID, claudeCmd, "Enter"); err != nil {
 		return nil, fmt.Errorf("launch claude in task window: %w", err)
