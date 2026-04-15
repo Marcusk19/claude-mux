@@ -65,3 +65,13 @@ cc_popup_key=$(tmux show-option -gqv @claude-mux-cc-popup-key)
 cc_popup_key=${cc_popup_key:-u}
 
 tmux bind-key "$cc_popup_key" run-shell "'$BINARY' cc open"
+
+# Command Center new task keybinding
+cc_new_key=$(tmux show-option -gqv @claude-mux-cc-new-key)
+cc_new_key=${cc_new_key:-N}
+
+# Read CC work directory (default: ~/workspace)
+cc_workdir=$(tmux show-option -gqv @claude-mux-cc-workdir)
+cc_workdir=${cc_workdir:-$HOME/workspace}
+
+tmux bind-key "$cc_new_key" run-shell "'$BINARY' cc new --workdir '$cc_workdir'"

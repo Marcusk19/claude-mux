@@ -109,11 +109,19 @@ Commands:
               Usage: claude-mux board update --card-id <id> --column <col>
 
   cc          Command Center management
-              Usage: claude-mux cc <start|stop|status|open|sessions>
+              Usage: claude-mux cc <start|stop|status|open|sessions|task|tasks|focus|new>
               sessions    Discover active Claude sessions and write JSON state
                 --capture         capture last N lines from each pane
                 --capture-lines N number of lines to capture (default 20)
                 --json            output full JSON to stdout
+              task        Create a new task-scoped CC session
+                --task string     task description
+                --repo string     git repo directory (default: ~/workspace)
+              tasks       List all active task sessions
+              focus       Open a specific task session in a popup
+                Usage: claude-mux cc focus <task-id>
+              new         Create a blank task session and open it in a popup
+                --workdir string  working directory (default: ~/workspace)
 
   plan        Interactive PRD planning that can launch a swarm
               --task string       initial task idea (optional)
@@ -131,7 +139,7 @@ Commands:
               --force             force rebuild even if image is up to date
 
 Tmux options:
-  @claude-mux-cc-repo    Default repo root for Command Center (default: ~/obsidian-git-sync)
+  @claude-mux-cc-workdir Default working directory for Command Center (default: ~/workspace)
 
 Flags:
   --help, -h  Show this help message`)
@@ -379,7 +387,7 @@ func runCC() {
 	case "open":
 		width := tmuxOption("@claude-mux-width", "80%")
 		height := tmuxOption("@claude-mux-height", "70%")
-		repoRoot := tmuxOption("@claude-mux-cc-repo", "~/obsidian-git-sync")
+		repoRoot := tmuxOption("@claude-mux-cc-workdir", "~/workspace")
 
 		// Expand ~ to home directory
 		if strings.HasPrefix(repoRoot, "~/") {
@@ -419,6 +427,85 @@ func runCC() {
 				fmt.Printf("  %s  %-10s  %s  %s\n", s.PaneID, s.State, s.GitBranch, s.Summary)
 			}
 			fmt.Printf("\nState written to %s\n", cc.SessionsStatePath())
+		}
+	case "task":
+		fs := flag.NewFlagSet("cc-task", flag.ExitOnError)
+		task := fs.String("task", "", "task description")
+		repo := fs.String("repo", "", "git repo directory")
+		fs.Parse(os.Args[3:])
+
+		repoRoot := *repo
+		if repoRoot == "" {
+			repoRoot = cc.DefaultRepoRoot()
+		}
+
+		state, err := cc.NewTask(*task, repoRoot)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(state.ID)
+	case "tasks":
+		tasks, err := cc.ListTasks()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		if len(tasks) == 0 {
+			fmt.Println("No active task sessions.")
+			return
+		}
+		fmt.Printf("%-12s  %-60s  %s\n", "ID", "TASK", "CREATED")
+		for _, t := range tasks {
+			taskDesc := t.Task
+			if len(taskDesc) > 60 {
+				taskDesc = taskDesc[:57] + "..."
+			}
+			if taskDesc == "" {
+				taskDesc = "(blank session)"
+			}
+			fmt.Printf("%-12s  %-60s  %s\n", t.ID, taskDesc, t.CreatedAt.Format(time.RFC3339))
+		}
+	case "focus":
+		if len(os.Args) < 4 {
+			fmt.Fprintf(os.Stderr, "usage: claude-mux cc focus <task-id>\n")
+			os.Exit(1)
+		}
+		taskID := os.Args[3]
+		width := tmuxOption("@claude-mux-width", "80%")
+		height := tmuxOption("@claude-mux-height", "70%")
+
+		if err := cc.FocusTask(taskID, width, height); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	case "new":
+		fs := flag.NewFlagSet("cc-new", flag.ExitOnError)
+		workdir := fs.String("workdir", "", "working directory for the new session")
+		fs.Parse(os.Args[3:])
+
+		repoRoot := *workdir
+		if repoRoot == "" {
+			repoRoot = cc.DefaultRepoRoot()
+		}
+		// Expand ~ to home directory
+		if strings.HasPrefix(repoRoot, "~/") {
+			home, _ := os.UserHomeDir()
+			repoRoot = filepath.Join(home, repoRoot[2:])
+		}
+
+		state, err := cc.NewTask("", repoRoot)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		_ = state
+
+		width := tmuxOption("@claude-mux-width", "80%")
+		height := tmuxOption("@claude-mux-height", "70%")
+		if err := cc.Open(width, height); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
 		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown cc subcommand: %s\n", os.Args[2])
