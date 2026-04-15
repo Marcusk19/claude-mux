@@ -1,6 +1,10 @@
 package kanban
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Marcusk19/claude-mux/internal/hook"
@@ -16,8 +20,9 @@ type PaneCard struct {
 	LiveStatus string
 	LiveTool   string
 	Summary    string
-	AgentID    string // Agent Teams agent identifier
-	AgentType  string // "teammate", "lead", or empty
+	AgentID         string // Agent Teams agent identifier
+	AgentType       string // "teammate", "lead", or empty
+	TaskDescription string // Orchestrator task description
 }
 
 // DiscoverKanban finds Claude panes in a specific tmux window and returns cards for them.
@@ -73,5 +78,57 @@ func DiscoverKanban(sessionName, windowIndex string) ([]PaneCard, error) {
 		cards = append(cards, card)
 	}
 
+	// Enrich with orchestrator task descriptions
+	tasksByPane := LoadTasksByPane()
+	for i := range cards {
+		if desc, ok := tasksByPane[cards[i].Pane.PaneID]; ok {
+			cards[i].TaskDescription = desc
+		}
+	}
+
 	return cards, nil
+}
+
+// LoadTasksByPane loads orchestrator state files and returns a map from pane ID to task description.
+func LoadTasksByPane() map[string]string {
+	result := make(map[string]string)
+	home, _ := os.UserHomeDir()
+	orchDir := filepath.Join(home, ".cache", "claude-mux", "orchestrator")
+
+	orchEntries, err := os.ReadDir(orchDir)
+	if err != nil {
+		return result
+	}
+
+	for _, orchEntry := range orchEntries {
+		if !orchEntry.IsDir() {
+			continue
+		}
+		taskDir := filepath.Join(orchDir, orchEntry.Name())
+		taskEntries, err := os.ReadDir(taskDir)
+		if err != nil {
+			continue
+		}
+		for _, taskEntry := range taskEntries {
+			if taskEntry.IsDir() || !strings.HasSuffix(taskEntry.Name(), ".json") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(taskDir, taskEntry.Name()))
+			if err != nil {
+				continue
+			}
+			var state struct {
+				PaneID string `json:"pane_id"`
+				Task   string `json:"task"`
+			}
+			if err := json.Unmarshal(data, &state); err != nil {
+				continue
+			}
+			if state.PaneID != "" && state.Task != "" {
+				result[state.PaneID] = state.Task
+			}
+		}
+	}
+
+	return result
 }
