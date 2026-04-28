@@ -1,3 +1,4 @@
 bin/
 .claude-mux/
+.claude/worktrees/
 .DS_Store

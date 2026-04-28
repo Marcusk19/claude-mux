@@ -105,7 +105,7 @@ Key packages: `internal/ui/tabs.go` (tab bar rendering), `internal/ui/worktree_l
 | `prefix + T` | `@claude-mux-worktree-h-key` | `T` | Horizontal split (panes stacked) |
 | `prefix + t` | `@claude-mux-worktree-v-key` | `t` | Vertical split (panes side by side) |
 
-Worktrees are created as sibling directories named `<repo>-wt-<timestamp>-<id>` with branch `worktree/<timestamp>-<id>`.
+Worktrees are created inside `.claude/worktrees/` named `<repo>-wt-<timestamp>-<id>` with branch `worktree/<timestamp>-<id>`, matching Claude Code's native `EnterWorktree` convention.
 
 ### Sandbox split keybindings
 

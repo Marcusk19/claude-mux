@@ -88,10 +88,14 @@ func Spawn(opts SpawnOpts) (string, error) {
 			branchName = strings.TrimSpace(string(out))
 		}
 	} else {
-		// Create a new worktree
+		// Create a new worktree inside .claude/worktrees/
 		repoName := filepath.Base(repoRoot)
 		branchName = "worktree/" + taskID
-		worktreeDir := filepath.Join(filepath.Dir(repoRoot), repoName+"-wt-"+taskID)
+		worktreeParent := filepath.Join(repoRoot, ".claude", "worktrees")
+		if err := os.MkdirAll(worktreeParent, 0o755); err != nil {
+			return "", fmt.Errorf("creating worktree directory: %w", err)
+		}
+		worktreeDir := filepath.Join(worktreeParent, repoName+"-wt-"+taskID)
 
 		out, err := exec.Command("git", "worktree", "add", worktreeDir, "-b", branchName).CombinedOutput()
 		if err != nil {

@@ -51,7 +51,10 @@ func TestDiscoverWorktrees_SeparateCloneIsNotWorktree(t *testing.T) {
 	}
 
 	// Add a real worktree to clone-a (name must match plugin pattern).
-	wtPath := filepath.Join(tmp, "clone-a-wt-20250101-120000-abc123")
+	// Place it inside .claude/worktrees/ to match the plugin's convention.
+	wtParent := filepath.Join(cloneA, ".claude", "worktrees")
+	os.MkdirAll(wtParent, 0o755)
+	wtPath := filepath.Join(wtParent, "clone-a-wt-20250101-120000-abc123")
 	if out, err := exec.Command("git", "-C", cloneA, "worktree", "add", wtPath, "-b", "wt-branch").CombinedOutput(); err != nil {
 		t.Fatalf("git worktree add: %v\n%s", err, out)
 	}

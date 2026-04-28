@@ -141,7 +141,7 @@ claude-mux status
 [20260323-143052-a1b2c3] running  (worktree/20260323-143052-a1b2c3, 45s ago)
   Task: Add input validation to the API
   Tool: Edit
-  Pane: %42  Worktree: ~/projects/my-api-wt-20260323-143052-a1b2c3
+  Pane: %42  Worktree: ~/projects/my-api/.claude/worktrees/my-api-wt-20260323-143052-a1b2c3
 ```
 
 Status is detected automatically: `running` if the tmux pane exists, `completed` if the pane is gone and the branch has commits, `failed` if the pane is gone with no commits. Live tool activity is enriched from hook state files.

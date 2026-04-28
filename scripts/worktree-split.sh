@@ -19,8 +19,9 @@ repo_name=$(basename "$repo_root")
 timestamp=$(date +%Y%m%d-%H%M%S)
 short_id=$(head -c 4 /dev/urandom | xxd -p | head -c 6)
 branch_name="worktree/${timestamp}-${short_id}"
-worktree_dir="${repo_root}/../${repo_name}-wt-${timestamp}-${short_id}"
+worktree_dir="${repo_root}/.claude/worktrees/${repo_name}-wt-${timestamp}-${short_id}"
 
+mkdir -p "${repo_root}/.claude/worktrees"
 if ! git worktree add "$worktree_dir" -b "$branch_name" 2>/dev/null; then
     tmux display-message "claude-mux: failed to create worktree"
     exit 1
