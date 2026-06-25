@@ -35,12 +35,9 @@ func Cleanup(opts CleanupOpts) error {
 			continue
 		}
 
-		// Stop and remove container if sandboxed
-		if s.Sandboxed && s.ContainerName != "" {
-			rt, rtErr := detectCleanupRuntime()
-			if rtErr == nil {
-				exec.Command(rt, "rm", "-f", s.ContainerName).Run()
-			}
+		// Remove openshell sandbox if sandboxed
+		if s.Sandboxed && s.SandboxName != "" {
+			exec.Command("openshell", "sandbox", "delete", s.SandboxName).Run()
 		}
 
 		// Remove worktree
@@ -56,17 +53,6 @@ func Cleanup(opts CleanupOpts) error {
 	}
 
 	return nil
-}
-
-// detectCleanupRuntime returns "docker" or "podman" for cleanup commands.
-func detectCleanupRuntime() (string, error) {
-	if _, err := exec.LookPath("docker"); err == nil {
-		return "docker", nil
-	}
-	if _, err := exec.LookPath("podman"); err == nil {
-		return "podman", nil
-	}
-	return "", fmt.Errorf("no container runtime found")
 }
 
 // FormatCleanup returns a summary of what was cleaned up.

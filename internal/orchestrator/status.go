@@ -53,8 +53,8 @@ func Status() ([]StatusResult, error) {
 				s.CompletedAt = &now
 				writeState(s)
 				r.SubagentState = s
-			} else {
-				// Enrich with hook state
+			} else if !s.Sandboxed {
+				// Enrich with hook state (not available for sandboxed sessions)
 				enrichWithHookState(&r)
 			}
 		}
@@ -76,6 +76,9 @@ func FormatStatus(results []StatusResult) string {
 		status := r.Status
 		if r.LiveStatus != "" {
 			status = r.LiveStatus
+		}
+		if r.Sandboxed {
+			status += " [sandboxed]"
 		}
 
 		fmt.Fprintf(&b, "[%s] %s  (%s, %s ago)\n", r.TaskID, status, r.BranchName, age)

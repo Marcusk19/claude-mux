@@ -42,13 +42,14 @@ internal/session
   └── internal/hook         (ReadState for live status enrichment)
 
 internal/orchestrator
+  ├── internal/openshell    (openshell sandbox command building)
   └── internal/tmux         (pane existence checks for status detection)
 ```
 
 ### Session discovery flow
 
 1. `tmux list-panes -a` with a custom format string using `%%DELIM%%` separator
-2. Filter panes where `pane_title` contains "Claude Code" or `pane_current_command` matches semver (e.g., `2.1.42`)
+2. Filter panes where `pane_title` contains "Claude Code", `pane_current_command` matches semver (e.g., `2.1.42`), or `pane_current_command` is `openshell` (sandboxed sessions)
 3. Normalize `pane_current_path` by replacing `/` with `-` to find `~/.claude/projects/<normalized>/sessions-index.json`
 4. Read the most recent entry from the index for summary, git branch, message count
 5. Tail-read the session's JSONL file (last 8KB) for last activity timestamp
@@ -88,7 +89,7 @@ Status detection: a subagent is `running` if its tmux pane still exists, `comple
 
 Uses Bubble Tea with the Bubbles `list` component. Three tabs: **Kanban** (default), **Sessions**, and **Worktrees**, switched with `Tab`.
 
-**Kanban tab** (default): Shows Claude agents in the current tmux window as equal-width columns. Each card displays pane index, git branch, state (working/waiting/permission/done), current tool, and live status. Arrow keys navigate between cards, Enter jumps to the selected pane. Polls `kanban.DiscoverKanban()` every 2s. Current window is detected via `CLAUDE_MUX_SESSION`/`CLAUDE_MUX_WINDOW` env vars (set by tmux keybinding) with fallback to `tmux display-message`. Key packages: `internal/kanban/kanban.go` (discovery), `internal/ui/kanban_view.go` (rendering).
+**Kanban tab** (default): Shows Claude agents in the current tmux window as equal-width columns. Each card displays pane index, git branch, state (working/waiting/permission/done/sandboxed), current tool, and live status. Sandboxed sessions (running via openshell) show a "sandboxed" state since hook-based live status is not available inside the sandbox. Arrow keys navigate between cards, Enter jumps to the selected pane. Polls `kanban.DiscoverKanban()` every 2s. Current window is detected via `CLAUDE_MUX_SESSION`/`CLAUDE_MUX_WINDOW` env vars (set by tmux keybinding) with fallback to `tmux display-message`. Key packages: `internal/kanban/kanban.go` (discovery), `internal/ui/kanban_view.go` (rendering).
 
 **Sessions tab**: Polls `session.DiscoverSessions()` every 2 seconds via `tea.Tick`. The `sessionItem` type implements `list.DefaultItem`. On enter, jumps to the selected session's pane. Press `p` to pin/unpin.
 
@@ -109,9 +110,15 @@ Worktrees are created inside `.claude/worktrees/` named `<repo>-wt-<timestamp>-<
 
 ### Sandbox split keybindings
 
-`claude-mux sandbox-split` builds the sandbox container image if needed and opens a tmux split with an interactive Claude session inside a sandboxed container (firewall + filesystem isolation). The current directory is bind-mounted directly — no worktree is created. Registered in `claude-mux.tmux` with two keybindings:
+`claude-mux sandbox-split` creates an openshell sandbox, uploads the current directory, and opens a tmux split with an interactive Claude session inside it. The sandbox uses the openshell inference gateway (`ANTHROPIC_BASE_URL=https://inference.local`). Registered in `claude-mux.tmux` with two keybindings:
 
 | Keybind | tmux option | Default | Effect |
 |---------|-------------|---------|--------|
 | `prefix + S` | `@claude-mux-sandbox-h-key` | `S` | Horizontal split (panes stacked) |
 | `prefix + s` | `@claude-mux-sandbox-v-key` | `s` | Vertical split (panes side by side) |
+
+Interactive sandboxes persist after exit — reconnect with `openshell sandbox connect <name>`. Autonomous sandboxes (`spawn --sandbox`) use `--no-keep` and are auto-deleted when claude exits. The `--provider` flag overrides the openshell default inference provider.
+
+**Prerequisite**: `openshell` must be installed and configured with a gateway and provider. See the openshell setup gist for details.
+
+**Monitoring limitation**: Sandboxed sessions show a "sandboxed" state indicator. Hook-based live status (tool name, status message, working/waiting) is not available for sandboxed sessions since Claude runs inside the remote sandbox. Running/completed/failed detection still works via tmux pane existence and `git log`.

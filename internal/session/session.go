@@ -14,6 +14,7 @@ const (
 	StateWaiting
 	StatePermission
 	StateDone
+	StateSandboxed
 	StateUnknown
 )
 
@@ -27,6 +28,8 @@ func (s ActivityState) String() string {
 		return "Permission"
 	case StateDone:
 		return "Done"
+	case StateSandboxed:
+		return "Sandboxed"
 	default:
 		return "Unknown"
 	}
@@ -42,6 +45,8 @@ func (s ActivityState) Emoji() string {
 		return "🔐"
 	case StateDone:
 		return "😊"
+	case StateSandboxed:
+		return "📦"
 	default:
 		return "❓"
 	}

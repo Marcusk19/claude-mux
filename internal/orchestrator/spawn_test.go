@@ -8,7 +8,7 @@ import (
 func TestBuildShellCmd_NonSandbox(t *testing.T) {
 	orchID := "orch-123"
 	taskID := "20260406-120000-abc123"
-	cmd := buildShellCmd(orchID, taskID, "/tmp/worktree", false, "")
+	cmd := buildShellCmd(orchID, taskID, "/tmp/worktree", false, "", "")
 
 	expected := "export CLAUDE_MUX_SESSION=orch-123/20260406-120000-abc123"
 	if !strings.Contains(cmd, expected) {
@@ -21,7 +21,7 @@ func TestBuildShellCmd_NonSandbox(t *testing.T) {
 }
 
 func TestBuildShellCmd_EnvFormat(t *testing.T) {
-	cmd := buildShellCmd("abc", "def", "/tmp/wt", false, "")
+	cmd := buildShellCmd("abc", "def", "/tmp/wt", false, "", "")
 
 	// The export should appear before the claude command
 	exportIdx := strings.Index(cmd, "export CLAUDE_MUX_SESSION=abc/def")

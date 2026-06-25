@@ -11,9 +11,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/Marcusk19/claude-mux/devcontainer"
 	"github.com/Marcusk19/claude-mux/internal/cc"
-	"github.com/Marcusk19/claude-mux/internal/container"
 	"github.com/Marcusk19/claude-mux/internal/hook"
 	"github.com/Marcusk19/claude-mux/internal/kanban"
 	"github.com/Marcusk19/claude-mux/internal/orchestrator"
@@ -51,9 +49,6 @@ func main() {
 		case "plan":
 			runPlan()
 			return
-		case "sandbox-build":
-			runSandboxBuild()
-			return
 		case "sandbox-split":
 			runSandboxSplit()
 			return
@@ -83,7 +78,8 @@ Commands:
               --worktree string   reuse an existing worktree path
               --branch string     branch name for the existing worktree
               --card-id string    kanban card ID to move to in-progress
-              --sandbox           run in a sandboxed container (firewall + isolation)
+              --sandbox           run in an openshell sandbox
+              --provider string   openshell provider name (uses default if omitted)
 
   status      Show status of all subagents
 
@@ -103,7 +99,7 @@ Commands:
               --repo string       git repo directory (defaults to cwd)
               --auto-merge        auto-merge completed branches
               --max-agents int    max concurrent subagents (default 3)
-              --sandbox           run subagents in sandboxed containers
+              --sandbox           run subagents in openshell sandboxes
 
   board       Update kanban board cards
               Usage: claude-mux board update --card-id <id> --column <col>
@@ -129,14 +125,12 @@ Commands:
               --file string       comma-separated file paths to include
               --auto-merge        auto-merge completed branches when swarm executes
               --max-agents int    max concurrent subagents (default 3)
-              --sandbox           run subagents in sandboxed containers
+              --sandbox           run subagents in openshell sandboxes
 
-  sandbox-split  Open a sandboxed Claude session in a tmux split
+  sandbox-split  Open a sandboxed Claude session in a tmux split (via openshell)
               --split string      -v (horizontal/stacked) or -h (vertical/side-by-side) (default -v)
               --pane-path string  working directory of the current pane
-
-  sandbox-build  Pre-build the sandbox container image
-              --force             force rebuild even if image is up to date
+              --provider string   openshell provider name (uses default if omitted)
 
 Tmux options:
   @claude-mux-cc-workdir Default working directory for Command Center (default: ~/workspace)
@@ -165,7 +159,8 @@ func runSpawn() {
 	worktree := fs.String("worktree", "", "reuse an existing worktree path")
 	branch := fs.String("branch", "", "branch name for the existing worktree")
 	cardID := fs.String("card-id", "", "kanban card ID to move to in-progress")
-	sandbox := fs.Bool("sandbox", false, "run subagent in a sandboxed container")
+	sandbox := fs.Bool("sandbox", false, "run subagent in an openshell sandbox")
+	provider := fs.String("provider", "", "openshell provider name (uses default if omitted)")
 	repo := fs.String("repo", "", "git repo directory (defaults to cwd)")
 	fs.Parse(os.Args[2:])
 
@@ -187,6 +182,7 @@ func runSpawn() {
 		BranchName:   *branch,
 		CardID:       *cardID,
 		Sandbox:      *sandbox,
+		Provider:     *provider,
 		RepoDir:      *repo,
 	})
 	if err != nil {
@@ -247,7 +243,7 @@ func runSwarm() {
 	filesFlag := fs.String("file", "", "comma-separated file paths to include")
 	autoMerge := fs.Bool("auto-merge", false, "auto-merge completed branches")
 	maxAgents := fs.Int("max-agents", 3, "max concurrent subagents")
-	sandbox := fs.Bool("sandbox", false, "run subagents in sandboxed containers")
+	sandbox := fs.Bool("sandbox", false, "run subagents in openshell sandboxes")
 	repo := fs.String("repo", "", "git repo directory (defaults to cwd)")
 	fs.Parse(os.Args[2:])
 
@@ -282,7 +278,7 @@ func runPlan() {
 	filesFlag := fs.String("file", "", "comma-separated file paths to include")
 	autoMerge := fs.Bool("auto-merge", false, "auto-merge completed branches when swarm executes")
 	maxAgents := fs.Int("max-agents", 3, "max concurrent subagents for swarm execution")
-	sandbox := fs.Bool("sandbox", false, "run subagents in sandboxed containers")
+	sandbox := fs.Bool("sandbox", false, "run subagents in openshell sandboxes")
 	repo := fs.String("repo", "", "git repo directory (defaults to cwd)")
 	fs.Parse(os.Args[2:])
 
@@ -529,38 +525,17 @@ func runSandboxSplit() {
 	fs := flag.NewFlagSet("sandbox-split", flag.ExitOnError)
 	splitFlag := fs.String("split", "-v", "tmux split flag: -v (horizontal/stacked) or -h (vertical/side-by-side)")
 	panePath := fs.String("pane-path", ".", "working directory of the current pane")
+	provider := fs.String("provider", "", "openshell provider name (uses default if omitted)")
 	fs.Parse(os.Args[2:])
 
 	if err := orchestrator.SandboxSplit(orchestrator.SandboxSplitOpts{
 		SplitFlag: *splitFlag,
 		PanePath:  *panePath,
+		Provider:  *provider,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "sandbox-split error: %v\n", err)
 		os.Exit(1)
 	}
-}
-
-func runSandboxBuild() {
-	fs := flag.NewFlagSet("sandbox-build", flag.ExitOnError)
-	force := fs.Bool("force", false, "force rebuild even if image is up to date")
-	fs.Parse(os.Args[2:])
-
-	runtime, err := container.DetectRuntime()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	if *force {
-		err = container.BuildImage(runtime, devcontainer.Assets)
-	} else {
-		err = container.EnsureImage(runtime, devcontainer.Assets)
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println("Sandbox image ready:", container.ImageName)
 }
 
 func runTUI() {

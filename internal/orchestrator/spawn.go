@@ -8,9 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Marcusk19/claude-mux/internal/container"
 	"github.com/Marcusk19/claude-mux/internal/kanban"
-	"github.com/Marcusk19/claude-mux/devcontainer"
+	"github.com/Marcusk19/claude-mux/internal/openshell"
 )
 
 const subagentSystemPromptTmpl = `You are an implementation agent in a multi-agent swarm. You have been assigned a specific subtask.
@@ -39,7 +38,8 @@ type SpawnOpts struct {
 	WorktreePath string   // optional: reuse an existing worktree instead of creating one
 	BranchName   string   // optional: branch name for the existing worktree
 	CardID       string   // optional: kanban card ID to move to in-progress
-	Sandbox      bool     // run the subagent inside a sandboxed container
+	Sandbox      bool     // run the subagent inside an openshell sandbox
+	Provider     string   // optional: openshell provider name (empty = use openshell default)
 	RepoDir      string   // optional: git repo directory (defaults to cwd)
 }
 
@@ -122,25 +122,17 @@ func Spawn(opts SpawnOpts) (string, error) {
 		os.WriteFile(filepath.Join(taskDir, "board-path"), []byte(board.Path), 0o644)
 	}
 
-	// Build sandbox image if needed
-	var containerName string
+	// Verify openshell is available if sandbox is requested
+	var sandboxName string
 	if opts.Sandbox {
-		runtime, err := container.DetectRuntime()
-		if err != nil {
-			return "", fmt.Errorf("sandbox requires docker or podman: %w", err)
+		if !openshell.Available() {
+			return "", fmt.Errorf("sandbox requires openshell (not found in PATH)")
 		}
-		if err := container.EnsureImage(runtime, devcontainer.Assets); err != nil {
-			return "", fmt.Errorf("building sandbox image: %w", err)
-		}
-		// Verify the image actually exists after build — catches silent build failures
-		if !container.ImageExists(runtime) {
-			return "", fmt.Errorf("sandbox image %q not found after build", container.ImageName)
-		}
-		containerName = "claude-mux-" + taskID
+		sandboxName = "claude-mux-" + taskID
 	}
 
 	// Open tmux pane with claude
-	paneID, err := openClaudePane(absWorktree, orchID, taskID, opts.Sandbox, containerName)
+	paneID, err := openClaudePane(absWorktree, orchID, taskID, opts.Sandbox, sandboxName, opts.Provider)
 	if err != nil {
 		return "", fmt.Errorf("opening tmux pane: %w", err)
 	}
@@ -157,7 +149,7 @@ func Spawn(opts SpawnOpts) (string, error) {
 		Status:         "running",
 		CreatedAt:      time.Now(),
 		Sandboxed:      opts.Sandbox,
-		ContainerName:  containerName,
+		SandboxName:    sandboxName,
 	}
 	if err := writeState(state); err != nil {
 		return "", fmt.Errorf("writing state: %w", err)
@@ -222,7 +214,7 @@ func paneExists(paneID string) bool {
 	return err == nil
 }
 
-func openClaudePane(worktreeDir string, orchID string, taskID string, sandbox bool, containerName string) (string, error) {
+func openClaudePane(worktreeDir string, orchID string, taskID string, sandbox bool, sandboxName string, provider string) (string, error) {
 	prompt := "Read .claude-mux/task.md and complete the task. Commit your changes when done."
 	// Write prompt to a file to avoid shell quoting issues
 	promptFile := filepath.Join(worktreeDir, ".claude-mux", "prompt.txt")
@@ -237,7 +229,7 @@ func openClaudePane(worktreeDir string, orchID string, taskID string, sandbox bo
 	}
 
 	// Build the shell command to run in the pane
-	shellCmd := buildShellCmd(orchID, taskID, worktreeDir, sandbox, containerName)
+	shellCmd := buildShellCmd(orchID, taskID, worktreeDir, sandbox, sandboxName, provider)
 
 	// Always spawn subagents in a new tmux window, never within the orchestrator's session.
 	// This keeps the orchestrator/command center isolated from subagent panes.
@@ -259,131 +251,15 @@ func openClaudePane(worktreeDir string, orchID string, taskID string, sandbox bo
 }
 
 // buildShellCmd constructs the shell command string for a subagent pane.
-// Exported as a function for testability.
-func buildShellCmd(orchID, taskID, worktreeDir string, sandbox bool, containerName string) string {
+func buildShellCmd(orchID, taskID, worktreeDir string, sandbox bool, sandboxName string, provider string) string {
 	sessionEnv := orchID + "/" + taskID
 	if sandbox {
-		innerCmd := buildSandboxCommand(worktreeDir, containerName, sessionEnv)
-		containerLog := filepath.Join(worktreeDir, ".claude-mux", "container.log")
-		// Redirect stderr to a log file so docker failures are diagnosable
-		// even after the tmux pane dies
-		return fmt.Sprintf("%s 2>&1 | tee %s", innerCmd, containerLog)
+		sandboxCmd := openshell.BuildAutonomousCommand(sandboxName, worktreeDir, provider)
+		sandboxLog := filepath.Join(worktreeDir, ".claude-mux", "sandbox.log")
+		return fmt.Sprintf("%s 2>&1 | tee %s", sandboxCmd, sandboxLog)
 	}
 	// Launch claude directly — using --dangerously-skip-permissions for autonomous subagent work.
 	return fmt.Sprintf(`export CLAUDE_MUX_SESSION=%s && claude --dangerously-skip-permissions --append-system-prompt "$(cat .claude-mux/system-prompt.txt)" "$(cat .claude-mux/prompt.txt)"`, sessionEnv)
-}
-
-// buildSandboxCommand constructs a "docker run ..." shell command for a sandboxed subagent.
-func buildSandboxCommand(worktreeDir string, containerName string, sessionEnv string) string {
-	runtime, _ := container.DetectRuntime()
-
-	home, _ := os.UserHomeDir()
-	cacheDir := filepath.Join(home, ".cache", "claude-mux")
-
-	// Write an entrypoint script that runs inside the container.
-	// Starts as root (for iptables), then drops to the node user (UID 1000)
-	// for claude because --dangerously-skip-permissions refuses to run as root.
-	entryScript := `#!/bin/sh
-set -e
-/usr/local/bin/init-firewall.sh
-# Ensure node user can write to mounted volumes
-chown -R node:node /workspace 2>/dev/null || true
-chown -R node:node /home/node/.claude /home/node/.claude.json 2>/dev/null || true
-chown -R node:node /home/node/.config 2>/dev/null || true
-# Harden file permissions before launching claude
-export HOME=/home/node
-su -s /bin/sh node -c '/usr/local/bin/security-init.sh'
-# Drop to node user for claude (refuses --dangerously-skip-permissions as root).
-# --bare skips hooks/onboarding setup, uses env-based auth directly.
-# -p skips the workspace trust dialog and exits after completion.
-exec su -s /bin/sh node -c 'cd /workspace && exec claude -p --bare --dangerously-skip-permissions \
-  --append-system-prompt "$(cat .claude-mux/system-prompt.txt)" \
-  "$(cat .claude-mux/prompt.txt)"'
-`
-	entryScriptPath := filepath.Join(worktreeDir, ".claude-mux", "sandbox-entry.sh")
-	os.WriteFile(entryScriptPath, []byte(entryScript), 0o755)
-
-	// Run as root inside the container. The container IS the sandbox —
-	// the firewall provides network isolation and the container boundary
-	// provides filesystem isolation. Root is needed for iptables setup.
-	cfg := container.ContainerConfig{
-		Image:        container.ImageName,
-		Name:         containerName,
-		Remove:       true,
-		Interactive:  true,
-		WorkDir:      "/workspace",
-		User:         "0:0",
-		Caps:         []string{"NET_ADMIN", "NET_RAW"},
-		SecurityOpts: []string{"no-new-privileges:true"},
-		Command:      "/workspace/.claude-mux/sandbox-entry.sh",
-		Mounts: []container.Mount{
-			{Source: worktreeDir, Target: "/workspace"},
-			{Source: cacheDir, Target: cacheDir},
-		},
-		EnvVars: map[string]string{
-			"CLAUDE_MUX_CACHE":   cacheDir,
-			"CLAUDE_MUX_SESSION": sessionEnv,
-		},
-	}
-
-	// Pass auth credentials. Support both Anthropic API key and Vertex AI (Google Cloud).
-	authEnvVars := []string{
-		"ANTHROPIC_API_KEY",
-		// Vertex AI / Google Cloud auth
-		"CLAUDE_CODE_USE_VERTEX",
-		"ANTHROPIC_VERTEX_PROJECT_ID",
-		"CLOUD_ML_REGION",
-		"CLOUD_ML_PROJECT_ID",
-		"GOOGLE_APPLICATION_CREDENTIALS",
-	}
-	for _, key := range authEnvVars {
-		if val := os.Getenv(key); val != "" {
-			cfg.EnvVars[key] = val
-		}
-	}
-
-	// Mount Google Cloud ADC credentials for Vertex AI auth.
-	// Not read-only because the node user needs read access after chown.
-	gcloudConfig := filepath.Join(home, ".config", "gcloud")
-	if info, err := os.Stat(gcloudConfig); err == nil && info.IsDir() {
-		cfg.Mounts = append(cfg.Mounts, container.Mount{
-			Source: gcloudConfig, Target: "/home/node/.config/gcloud",
-		})
-	}
-
-	// Mount claude config for session state
-	claudeConfig := filepath.Join(home, ".claude")
-	if info, err := os.Stat(claudeConfig); err == nil && info.IsDir() {
-		cfg.Mounts = append(cfg.Mounts, container.Mount{
-			Source: claudeConfig, Target: "/home/node/.claude",
-		})
-	}
-
-	// Mount .claude.json (onboarding state, theme, etc.)
-	claudeJSON := filepath.Join(home, ".claude.json")
-	if _, err := os.Stat(claudeJSON); err == nil {
-		cfg.Mounts = append(cfg.Mounts, container.Mount{
-			Source: claudeJSON, Target: "/home/node/.claude.json",
-		})
-	}
-
-	// Mount gitconfig read-only
-	gitconfig := filepath.Join(home, ".gitconfig")
-	if _, err := os.Stat(gitconfig); err == nil {
-		cfg.Mounts = append(cfg.Mounts, container.Mount{
-			Source: gitconfig, Target: "/home/node/.gitconfig", ReadOnly: true,
-		})
-	}
-
-	// Mount SSH keys read-only if they exist
-	sshDir := filepath.Join(home, ".ssh")
-	if _, err := os.Stat(sshDir); err == nil {
-		cfg.Mounts = append(cfg.Mounts, container.Mount{
-			Source: sshDir, Target: "/home/node/.ssh", ReadOnly: true,
-		})
-	}
-
-	return container.BuildShellCommand(runtime, cfg)
 }
 
 // RepoRoot returns the git repository root for the current directory.

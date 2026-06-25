@@ -44,10 +44,11 @@ func ListPanes() ([]PaneInfo, error) {
 	return parsePaneLines(string(out)), nil
 }
 
-// IsClaudePane checks if a pane is running Claude Code.
+// IsClaudePane checks if a pane is running Claude Code (directly or inside an openshell sandbox).
 // The pane title persists after a process exits, so we can't rely on it alone.
-// We require either a semver command (Claude Code's process name) or both
-// a "Claude Code" title and a non-shell command (ruling out exited sessions).
+// We require either a semver command (Claude Code's process name), both
+// a "Claude Code" title and a non-shell command (ruling out exited sessions),
+// or the openshell command (sandboxed Claude session).
 func IsClaudePane(p PaneInfo) bool {
 	if semverRe.MatchString(p.PaneCommand) {
 		return true
@@ -55,7 +56,15 @@ func IsClaudePane(p PaneInfo) bool {
 	if strings.Contains(p.PaneTitle, "Claude Code") && !isShell(p.PaneCommand) {
 		return true
 	}
+	if IsOpenShellPane(p) {
+		return true
+	}
 	return false
+}
+
+// IsOpenShellPane checks if a pane is running an openshell sandbox.
+func IsOpenShellPane(p PaneInfo) bool {
+	return p.PaneCommand == "openshell"
 }
 
 func isShell(cmd string) bool {

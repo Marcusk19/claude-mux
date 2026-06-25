@@ -43,6 +43,12 @@ func DiscoverKanban(sessionName, windowIndex string) ([]PaneCard, error) {
 			State: session.InferState(p.PaneTitle),
 		}
 
+		// Sandboxed panes (openshell) have limited status visibility
+		sandboxed := tmux.IsOpenShellPane(p)
+		if sandboxed {
+			card.State = session.StateSandboxed
+		}
+
 		// Get summary and branch from session index
 		summary, branch, err := session.ReadLatestIndex(p.PanePath)
 		if err == nil {
@@ -51,7 +57,8 @@ func DiscoverKanban(sessionName, windowIndex string) ([]PaneCard, error) {
 		}
 
 		// Enrich with live hook state matched by tmux pane ID
-		if p.PaneID != "" {
+		// (not available for sandboxed sessions)
+		if p.PaneID != "" && !sandboxed {
 			hookState, err := hook.ReadStateByPaneID(p.PaneID)
 			if err == nil && hookState != nil {
 				t, err := time.Parse(time.RFC3339, hookState.Timestamp)

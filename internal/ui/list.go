@@ -26,6 +26,8 @@ func stateStyle(s session.ActivityState) lipgloss.Style {
 		return permissionStyle.Bold(true)
 	case session.StateDone:
 		return doneStyle.Bold(true)
+	case session.StateSandboxed:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true)
 	default:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Bold(true)
 	}

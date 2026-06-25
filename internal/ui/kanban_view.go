@@ -67,6 +67,8 @@ func stateEmoji(s session.ActivityState) string {
 		return "\U0001f510"
 	case session.StateDone:
 		return "\u2705"
+	case session.StateSandboxed:
+		return "\U0001f4e6"
 	default:
 		return "\u2753"
 	}
@@ -80,6 +82,8 @@ func stateBorderColor(s session.ActivityState) lipgloss.Color {
 		return lipgloss.Color("214")
 	case session.StateDone:
 		return lipgloss.Color("245")
+	case session.StateSandboxed:
+		return lipgloss.Color("33")
 	default:
 		return lipgloss.Color("245")
 	}
